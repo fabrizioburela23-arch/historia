@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Role: ADMIN | OPERATOR
+// BatchStatus: PENDING | IN_PROGRESS | PAUSED | COMPLETED | CANCELLED
+// StepStatus: PENDING | IN_PROGRESS | COMPLETED | SKIPPED
+
+model User {
+  id         String           @id @default(cuid())
+  name       String
+  email      String           @unique
+  password   String
+  role       String           @default("OPERATOR")
+  createdAt  DateTime         @default(now())
+  executions BatchExecution[]
+}
+
+model PlantLayout {
+  id        String    @id @default(cuid())
+  name      String
+  imageUrl  String?
+  machines  Machine[]
+  createdAt DateTime  @default(now())
+}
+
+model Machine {
+  id            String       @id @default(cuid())
+  name          String
+  description   String?
+  code          String       @unique
+  locationX     Float?
+  locationY     Float?
+  plantLayoutId String?
+  plantLayout   PlantLayout? @relation(fields: [plantLayoutId], references: [id])
+  batches       Batch[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model Recipe {
+  id                String       @id @default(cuid())
+  name              String
+  description       String?
+  targetTimeMinutes Int          @default(0)
+  steps             RecipeStep[]
+  batches           Batch[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+model RecipeStep {
+  id                String          @id @default(cuid())
+  recipeId          String
+  recipe            Recipe          @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  order             Int
+  name              String
+  description       String?
+  targetTimeMinutes Int             @default(0)
+  checklistItems    ChecklistItem[]
+  stepExecutions    StepExecution[]
+  createdAt         DateTime        @default(now())
+}
+
+model ChecklistItem {
+  id           String               @id @default(cuid())
+  recipeStepId String
+  recipeStep   RecipeStep           @relation(fields: [recipeStepId], references: [id], onDelete: Cascade)
+  label        String
+  required     Boolean              @default(true)
+  order        Int                  @default(0)
+  completions  ChecklistCompletion[]
+}
+
+model Batch {
+  id         String           @id @default(cuid())
+  name       String
+  recipeId   String
+  recipe     Recipe           @relation(fields: [recipeId], references: [id])
+  machineId  String
+  machine    Machine          @relation(fields: [machineId], references: [id])
+  status     String           @default("PENDING")
+  notes      String?
+  executions BatchExecution[]
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+}
+
+model BatchExecution {
+  id             String          @id @default(cuid())
+  batchId        String
+  batch          Batch           @relation(fields: [batchId], references: [id])
+  userId         String
+  user           User            @relation(fields: [userId], references: [id])
+  status         String          @default("IN_PROGRESS")
+  startedAt      DateTime        @default(now())
+  completedAt    DateTime?
+  stepExecutions StepExecution[]
+}
+
+model StepExecution {
+  id                   String               @id @default(cuid())
+  batchExecutionId     String
+  batchExecution       BatchExecution       @relation(fields: [batchExecutionId], references: [id])
+  recipeStepId         String
+  recipeStep           RecipeStep           @relation(fields: [recipeStepId], references: [id])
+  status               String               @default("PENDING")
+  startedAt            DateTime?
+  completedAt          DateTime?
+  actualTimeSeconds    Int?
+  waste                Float?
+  observations         String?
+  checklistCompletions ChecklistCompletion[]
+}
+
+model ChecklistCompletion {
+  id              String        @id @default(cuid())
+  stepExecutionId String
+  stepExecution   StepExecution @relation(fields: [stepExecutionId], references: [id])
+  checklistItemId String
+  checklistItem   ChecklistItem @relation(fields: [checklistItemId], references: [id])
+  completed       Boolean       @default(false)
+  completedAt     DateTime?
+
+  @@unique([stepExecutionId, checklistItemId])
+}
