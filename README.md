@@ -8,8 +8,8 @@ Aplicación industrial para digitalización del piso de producción: registro de
 
 ```
 mes-app/
-├── client/          ← Frontend React (Vercel / Netlify)
-└── server/          ← Backend Express API (Railway / Render)
+├── frontend/          ← Frontend React (Vercel / Netlify)
+└── backend/          ← Backend Express API (Railway / Render)
 ```
 
 Cada carpeta es un proyecto independiente con su propio `package.json`.  
@@ -19,7 +19,7 @@ Se despliegan por separado en plataformas distintas.
 
 ## Variables de entorno
 
-### Backend — `server/.env`
+### Backend — `backend/.env`
 ```env
 DATABASE_URL="file:./dev.db"          # SQLite (cambiar a PostgreSQL en prod si se prefiere)
 JWT_SECRET="tu-secreto-seguro-aqui"   # Cambia esto en producción
@@ -27,7 +27,7 @@ PORT=3001
 FRONTEND_URL=https://tu-app.vercel.app # URL del frontend deployado (para CORS)
 ```
 
-### Frontend — `client/.env.production`
+### Frontend — `frontend/.env.production`
 ```env
 VITE_API_URL=https://tu-api.railway.app  # URL del backend deployado (sin slash final)
 ```
@@ -44,11 +44,11 @@ cd mes-app
 
 # 2. Instalar todas las dependencias
 npm install
-cd server && npm install && cd ..
-cd client && npm install && cd ..
+cd backend && npm install && cd ..
+cd frontend && npm install && cd ..
 
 # 3. Configurar base de datos y datos de prueba
-cd server
+cd backend
 cp .env.example .env
 npm run db:setup
 cd ..
@@ -75,7 +75,7 @@ Railway detecta automáticamente el proyecto Node.js.
 1. Crear cuenta en [railway.app](https://railway.app)
 2. **New Project → Deploy from GitHub repo**
 3. Seleccionar este repositorio
-4. En **Settings → Root Directory** poner: `server`
+4. En **Settings → Root Directory** poner: `backend`
 5. En **Variables** agregar:
    ```
    DATABASE_URL=file:./prod.db
@@ -95,7 +95,7 @@ Railway detecta automáticamente el proyecto Node.js.
 1. Crear cuenta en [vercel.com](https://vercel.com)
 2. **Add New → Project → Import Git Repository**
 3. Seleccionar este repositorio
-4. En **Root Directory** poner: `client`
+4. En **Root Directory** poner: `frontend`
 5. Configuración detectada automáticamente:
    - **Framework**: Vite
    - **Build Command**: `npm run build`
@@ -113,14 +113,14 @@ Railway detecta automáticamente el proyecto Node.js.
 
 1. **Add new site → Import from Git**
 2. Seleccionar repositorio
-3. En **Base directory**: `client`
+3. En **Base directory**: `frontend`
 4. **Build command**: `npm run build`
-5. **Publish directory**: `client/dist`
+5. **Publish directory**: `frontend/dist`
 6. En **Environment variables** agregar:
    ```
    VITE_API_URL=https://mes-api.up.railway.app
    ```
-7. El archivo `client/public/_redirects` ya está incluido para manejar el routing SPA.
+7. El archivo `frontend/public/_redirects` ya está incluido para manejar el routing SPA.
 
 ---
 
