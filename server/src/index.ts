@@ -16,11 +16,15 @@ import layoutRoutes from './routes/layouts'
 const app = express()
 const httpServer = createServer(app)
 
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://localhost:4173']
+
 const io = new Server(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
+  cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true }
 })
 
-app.use(cors())
+app.use(cors({ origin: allowedOrigins, credentials: true }))
 app.use(express.json())
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 
