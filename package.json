@@ -1,14 +1,14 @@
 {
-  "name": "mes-factory",
+  "name": "mes-app",
+  "version": "1.0.0",
   "private": true,
-  "workspaces": [
-    "client",
-    "server"
-  ],
+  "workspaces": ["client", "server"],
   "scripts": {
-    "install-all": "npm install",
     "build:server": "npm run build --workspace=server",
-    "build:client": "npm run build --workspace=client",
-    "start": "npx prisma db push && node dist/seed.js && node dist/index.js"
+    "start:server": "npm run start --workspace=server",
+    "build:client": "npm run build --workspace=client"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
   }
 }
