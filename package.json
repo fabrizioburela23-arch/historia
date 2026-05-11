@@ -9,6 +9,6 @@
     "install-all": "npm install",
     "build:server": "npm run build --workspace=server",
     "build:client": "npm run build --workspace=client",
-    "start:server": "npm run start --workspace=server"
+    "start": "npx prisma db push && node dist/seed.js && node dist/index.js"
   }
 }
