@@ -1,13 +1,24 @@
 {
-  "name": "mes-app",
+  "name": "mes-server",
   "version": "1.0.0",
-  "private": true,
-  "workspaces": ["client", "server"],
+  "main": "dist/index.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace=server\" \"npm run dev --workspace=client\"",
-    "setup": "npm install && npm run db:setup --workspace=server"
+    "start": "npx prisma db push && node dist/seed.js && node dist/index.js",
+    "build": "tsc",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "@types/cors": "^2.8.13",
+    "@types/express": "^4.17.17",
+    "@types/node": "^18.15.11",
+    "prisma": "^5.0.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.0.4"
   }
 }
