@@ -52,8 +52,8 @@ io.on('connection', socket => {
 
 export { io }
 
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🏭 MES Server running on port ${PORT}\n`);
-});const PORT = process.env.PORT || 3001;
+});
