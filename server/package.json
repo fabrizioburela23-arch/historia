@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "npx prisma generate && tsc",
-    "start": "npx prisma db push && npx ts-node src/seed.ts && node dist/index.js",
+    "start": "node dist/index.js",
     "postinstall": "npx prisma generate",
     "db:setup": "npx prisma db push && npx ts-node src/seed.ts",
     "db:seed": "npx ts-node src/seed.ts"
