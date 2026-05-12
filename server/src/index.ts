@@ -52,6 +52,7 @@ io.on('connection', socket => {
 
 export { io }
 
+// --- CONFIGURACIÓN CORRECTA DEL PUERTO PARA RAILWAY ---
 const PORT = Number(process.env.PORT) || 3001;
 
 httpServer.listen(PORT, '0.0.0.0', () => {
