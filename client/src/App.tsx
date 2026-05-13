@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage'
 import Layout from './components/Layout'
 import DashboardPage from './pages/admin/DashboardPage'
 import MachinesPage from './pages/admin/MachinesPage'
+import MaterialsPage from './pages/admin/MaterialsPage'
 import RecipesPage from './pages/admin/RecipesPage'
 import BatchesPage from './pages/admin/BatchesPage'
 import LayoutPage from './pages/admin/LayoutPage'
@@ -37,6 +38,7 @@ export default function App() {
         <Route element={<RequireAuth><Layout /></RequireAuth>}>
           <Route path="/admin/dashboard" element={<RequireAdmin><DashboardPage /></RequireAdmin>} />
           <Route path="/admin/machines" element={<RequireAdmin><MachinesPage /></RequireAdmin>} />
+          <Route path="/admin/materials" element={<RequireAdmin><MaterialsPage /></RequireAdmin>} />
           <Route path="/admin/recipes" element={<RequireAdmin><RecipesPage /></RequireAdmin>} />
           <Route path="/admin/batches" element={<RequireAdmin><BatchesPage /></RequireAdmin>} />
           <Route path="/admin/layout" element={<RequireAdmin><LayoutPage /></RequireAdmin>} />

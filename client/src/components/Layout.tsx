@@ -1,14 +1,15 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import {
-  LayoutDashboard, Cpu, BookOpen, Package, Map, Factory,
-  LogOut, ChevronRight, User
+  LayoutDashboard, Cpu, GitBranch, Package, Map, Factory,
+  LogOut, ChevronRight, User, FlaskConical
 } from 'lucide-react'
 
 const adminNav = [
   { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/admin/machines', icon: Cpu, label: 'Máquinas' },
-  { to: '/admin/recipes', icon: BookOpen, label: 'Recetas' },
+  { to: '/admin/materials', icon: FlaskConical, label: 'Materiales' },
+  { to: '/admin/recipes', icon: GitBranch, label: 'Flujos Producción' },
   { to: '/admin/batches', icon: Package, label: 'Lotes' },
   { to: '/admin/layout', icon: Map, label: 'Layout Planta' }
 ]

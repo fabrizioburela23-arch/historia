@@ -11,7 +11,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     where: status ? { status: status as string } : undefined,
     include: {
       recipe: { select: { id: true, name: true, targetTimeMinutes: true } },
-      machine: { select: { id: true, name: true, code: true } },
+      machine: { select: { id: true, name: true, code: true, status: true } },
       executions: { select: { id: true, status: true, startedAt: true, completedAt: true } }
     },
     orderBy: { createdAt: 'desc' }
@@ -25,7 +25,13 @@ router.get('/:id', authenticate, async (req, res: Response) => {
     include: {
       recipe: {
         include: {
-          steps: { include: { checklistItems: { orderBy: { order: 'asc' } } }, orderBy: { order: 'asc' } }
+          steps: {
+            include: {
+              checklistItems: { orderBy: { order: 'asc' } },
+              materials: { include: { material: true } }
+            },
+            orderBy: { order: 'asc' }
+          }
         }
       },
       machine: true,
@@ -39,13 +45,27 @@ router.get('/:id', authenticate, async (req, res: Response) => {
   res.json(batch)
 })
 
-router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { name, recipeId, machineId, notes } = req.body
+// Operators and admins can create batches
+router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
+  const { name, recipeId, machineId, notes, priority, plannedQty, unit, supervisorName, plannedStartAt, plannedEndAt } = req.body
   if (!name || !recipeId || !machineId) {
-    res.status(400).json({ error: 'Nombre, receta y máquina requeridos' }); return
+    res.status(400).json({ error: 'Nombre, flujo y máquina son requeridos' }); return
   }
   const batch = await prisma.batch.create({
-    data: { name, recipeId, machineId, notes },
+    data: {
+      name,
+      recipeId,
+      machineId,
+      notes,
+      priority: priority || 'NORMAL',
+      plannedQty: plannedQty ? parseFloat(plannedQty) : undefined,
+      unit,
+      supervisorName,
+      plannedStartAt: plannedStartAt ? new Date(plannedStartAt) : undefined,
+      plannedEndAt: plannedEndAt ? new Date(plannedEndAt) : undefined,
+      createdBy: req.user?.role === 'OPERATOR' ? 'OPERATOR' : 'ADMIN',
+      createdById: req.user?.id
+    },
     include: {
       recipe: { select: { id: true, name: true } },
       machine: { select: { id: true, name: true, code: true } }
@@ -54,16 +74,27 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res: Respo
   res.status(201).json(batch)
 })
 
-router.put('/:id', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { name, status, notes } = req.body
+router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  const isAdmin = req.user?.role === 'ADMIN'
+  const { name, status, notes, priority, plannedQty, actualQty, unit, supervisorName, plannedStartAt, plannedEndAt } = req.body
   try {
+    const data: Record<string, unknown> = {
+      ...(name && { name }),
+      ...(status && { status }),
+      ...(notes !== undefined && { notes }),
+      ...(priority && { priority }),
+      ...(plannedQty !== undefined && { plannedQty: parseFloat(plannedQty) }),
+      ...(unit && { unit }),
+      ...(supervisorName !== undefined && { supervisorName }),
+      ...(plannedStartAt !== undefined && { plannedStartAt: plannedStartAt ? new Date(plannedStartAt) : null }),
+      ...(plannedEndAt !== undefined && { plannedEndAt: plannedEndAt ? new Date(plannedEndAt) : null })
+    }
+    if (actualQty !== undefined && isAdmin) {
+      data.actualQty = parseFloat(actualQty)
+    }
     const batch = await prisma.batch.update({
       where: { id: req.params.id },
-      data: {
-        ...(name && { name }),
-        ...(status && { status }),
-        ...(notes !== undefined && { notes })
-      },
+      data,
       include: {
         recipe: { select: { id: true, name: true } },
         machine: { select: { id: true, name: true, code: true } }

@@ -23,11 +23,17 @@ router.get('/:id', authenticate, async (req, res: Response) => {
 })
 
 router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { name, description, code, plantLayoutId } = req.body
+  const { name, description, code, machineType, capacity, capacityUnit, plantLayoutId } = req.body
   if (!name || !code) { res.status(400).json({ error: 'Nombre y código requeridos' }); return }
   try {
     const machine = await prisma.machine.create({
-      data: { name, description, code, plantLayoutId: plantLayoutId || null }
+      data: {
+        name, description, code,
+        machineType: machineType || null,
+        capacity: capacity ? parseFloat(capacity) : null,
+        capacityUnit: capacityUnit || null,
+        plantLayoutId: plantLayoutId || null
+      }
     })
     res.status(201).json(machine)
   } catch {
@@ -36,7 +42,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res: Respo
 })
 
 router.put('/:id', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { name, description, code, locationX, locationY, plantLayoutId } = req.body
+  const { name, description, code, status, machineType, capacity, capacityUnit, locationX, locationY, plantLayoutId } = req.body
   try {
     const machine = await prisma.machine.update({
       where: { id: req.params.id },
@@ -44,10 +50,31 @@ router.put('/:id', authenticate, requireAdmin, async (req: AuthRequest, res: Res
         ...(name && { name }),
         ...(description !== undefined && { description }),
         ...(code && { code }),
+        ...(status && { status }),
+        ...(machineType !== undefined && { machineType: machineType || null }),
+        ...(capacity !== undefined && { capacity: capacity ? parseFloat(capacity) : null }),
+        ...(capacityUnit !== undefined && { capacityUnit: capacityUnit || null }),
         ...(locationX !== undefined && { locationX }),
         ...(locationY !== undefined && { locationY }),
         ...(plantLayoutId !== undefined && { plantLayoutId: plantLayoutId || null })
       }
+    })
+    res.json(machine)
+  } catch {
+    res.status(404).json({ error: 'Máquina no encontrada' })
+  }
+})
+
+// Quick status update (operator can report machine status)
+router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response) => {
+  const { status } = req.body
+  if (!['ACTIVE', 'MAINTENANCE', 'IDLE'].includes(status)) {
+    res.status(400).json({ error: 'Estado inválido' }); return
+  }
+  try {
+    const machine = await prisma.machine.update({
+      where: { id: req.params.id },
+      data: { status }
     })
     res.json(machine)
   } catch {
