@@ -1,6 +1,9 @@
 export type Role = 'ADMIN' | 'OPERATOR'
 export type BatchStatus = 'PENDING' | 'IN_PROGRESS' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 export type StepStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED'
+export type MachineStatus = 'ACTIVE' | 'MAINTENANCE' | 'IDLE'
+export type ProcessType = 'PREPARATION' | 'MIXING' | 'COOKING' | 'COOLING' | 'PACKAGING' | 'QC' | 'TRANSPORT' | 'OTHER'
+export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 
 export interface User {
   id: string
@@ -23,12 +26,34 @@ export interface Machine {
   name: string
   description?: string
   code: string
+  status: MachineStatus
+  machineType?: string
+  capacity?: number
+  capacityUnit?: string
   locationX?: number
   locationY?: number
   plantLayoutId?: string
   plantLayout?: { id: string; name: string }
   createdAt: string
   updatedAt: string
+}
+
+export interface Material {
+  id: string
+  name: string
+  code: string
+  unit: string
+  description?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RecipeStepMaterial {
+  id: string
+  materialId: string
+  material: Material
+  quantity: number
+  unit?: string
 }
 
 export interface ChecklistItem {
@@ -43,8 +68,11 @@ export interface RecipeStep {
   order: number
   name: string
   description?: string
+  processType: ProcessType
+  machineRequired: boolean
   targetTimeMinutes: number
   checklistItems: ChecklistItem[]
+  materials: RecipeStepMaterial[]
 }
 
 export interface Recipe {
@@ -52,6 +80,7 @@ export interface Recipe {
   name: string
   description?: string
   targetTimeMinutes: number
+  version: string
   steps: RecipeStep[]
   createdAt: string
   updatedAt: string
@@ -63,9 +92,17 @@ export interface Batch {
   recipeId: string
   recipe: { id: string; name: string; targetTimeMinutes?: number }
   machineId: string
-  machine: { id: string; name: string; code: string }
+  machine: { id: string; name: string; code: string; status?: string }
   status: BatchStatus
+  priority: Priority
   notes?: string
+  plannedQty?: number
+  actualQty?: number
+  unit?: string
+  supervisorName?: string
+  plannedStartAt?: string
+  plannedEndAt?: string
+  createdBy?: string
   executions?: { id: string; status: string; startedAt: string; completedAt?: string }[]
   createdAt: string
   updatedAt: string
