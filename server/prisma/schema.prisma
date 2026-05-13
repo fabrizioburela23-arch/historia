@@ -10,6 +10,9 @@ datasource db {
 // Role: ADMIN | OPERATOR
 // BatchStatus: PENDING | IN_PROGRESS | PAUSED | COMPLETED | CANCELLED
 // StepStatus: PENDING | IN_PROGRESS | COMPLETED | SKIPPED
+// MachineStatus: ACTIVE | MAINTENANCE | IDLE
+// ProcessType: PREPARATION | MIXING | COOKING | COOLING | PACKAGING | QC | TRANSPORT | OTHER
+// Priority: LOW | NORMAL | HIGH | URGENT
 
 model User {
   id         String           @id @default(cuid())
@@ -34,6 +37,10 @@ model Machine {
   name          String
   description   String?
   code          String       @unique
+  status        String       @default("ACTIVE")
+  machineType   String?
+  capacity      Float?
+  capacityUnit  String?
   locationX     Float?
   locationY     Float?
   plantLayoutId String?
@@ -43,11 +50,23 @@ model Machine {
   updatedAt     DateTime     @updatedAt
 }
 
+model Material {
+  id           String               @id @default(cuid())
+  name         String
+  code         String               @unique
+  unit         String
+  description  String?
+  stepMaterials RecipeStepMaterial[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+}
+
 model Recipe {
   id                String       @id @default(cuid())
   name              String
   description       String?
   targetTimeMinutes Int          @default(0)
+  version           String       @default("1.0")
   steps             RecipeStep[]
   batches           Batch[]
   createdAt         DateTime     @default(now())
@@ -55,16 +74,31 @@ model Recipe {
 }
 
 model RecipeStep {
-  id                String          @id @default(cuid())
+  id                String               @id @default(cuid())
   recipeId          String
-  recipe            Recipe          @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  recipe            Recipe               @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   order             Int
   name              String
   description       String?
-  targetTimeMinutes Int             @default(0)
+  processType       String               @default("OTHER")
+  machineRequired   Boolean              @default(false)
+  targetTimeMinutes Int                  @default(0)
   checklistItems    ChecklistItem[]
   stepExecutions    StepExecution[]
-  createdAt         DateTime        @default(now())
+  materials         RecipeStepMaterial[]
+  createdAt         DateTime             @default(now())
+}
+
+model RecipeStepMaterial {
+  id         String     @id @default(cuid())
+  stepId     String
+  step       RecipeStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  materialId String
+  material   Material   @relation(fields: [materialId], references: [id])
+  quantity   Float
+  unit       String?
+
+  @@unique([stepId, materialId])
 }
 
 model ChecklistItem {
@@ -78,17 +112,26 @@ model ChecklistItem {
 }
 
 model Batch {
-  id         String           @id @default(cuid())
-  name       String
-  recipeId   String
-  recipe     Recipe           @relation(fields: [recipeId], references: [id])
-  machineId  String
-  machine    Machine          @relation(fields: [machineId], references: [id])
-  status     String           @default("PENDING")
-  notes      String?
-  executions BatchExecution[]
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  id             String           @id @default(cuid())
+  name           String
+  recipeId       String
+  recipe         Recipe           @relation(fields: [recipeId], references: [id])
+  machineId      String
+  machine        Machine          @relation(fields: [machineId], references: [id])
+  status         String           @default("PENDING")
+  priority       String           @default("NORMAL")
+  notes          String?
+  plannedQty     Float?
+  actualQty      Float?
+  unit           String?
+  supervisorName String?
+  plannedStartAt DateTime?
+  plannedEndAt   DateTime?
+  createdById    String?
+  createdBy      String?
+  executions     BatchExecution[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 }
 
 model BatchExecution {

@@ -12,6 +12,7 @@ import batchRoutes from './routes/batches'
 import executionRoutes from './routes/executions'
 import dashboardRoutes from './routes/dashboard'
 import layoutRoutes from './routes/layouts'
+import materialRoutes from './routes/materials'
 
 const app = express()
 const httpServer = createServer(app)
@@ -35,6 +36,7 @@ app.use('/api/batches', batchRoutes)
 app.use('/api/executions', executionRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/layouts', layoutRoutes)
+app.use('/api/materials', materialRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }))
 
@@ -52,6 +54,7 @@ io.on('connection', socket => {
 
 export { io }
 
+// --- CONFIGURACIÓN CORRECTA DEL PUERTO PARA RAILWAY ---
 const PORT = Number(process.env.PORT) || 3001;
 
 httpServer.listen(PORT, '0.0.0.0', () => {
