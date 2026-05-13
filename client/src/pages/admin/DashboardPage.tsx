@@ -95,21 +95,21 @@ export default function DashboardPage() {
         {/* Bottleneck steps */}
         <div className="card p-5">
           <h2 className="font-semibold text-gray-800 mb-4">Pasos con Mayor Tiempo Promedio</h2>
-          {metrics.stepStats.length === 0 ? (
+          {metrics.opStats.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-gray-400">
               <AlertTriangle size={32} className="mb-2 opacity-50" />
               <p className="text-sm">Sin datos disponibles</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {metrics.stepStats.map(s => {
-                const ratio = s.targetMinutes > 0 ? parseFloat(s.avgActualMinutes) / s.targetMinutes : 0
+              {metrics.opStats.map(s => {
+                const ratio = s.targetMin > 0 ? parseFloat(s.avgManHours) * 60 / s.targetMin : 0
                 const barColor = ratio <= 1 ? 'bg-green-400' : ratio <= 1.3 ? 'bg-yellow-400' : 'bg-red-400'
                 return (
                   <div key={s.stepId}>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="font-medium text-gray-700 truncate">{s.stepName}</span>
-                      <span className="text-gray-500 text-xs ml-2 shrink-0">{s.avgActualMinutes}' / {s.targetMinutes}'</span>
+                      <span className="text-gray-500 text-xs ml-2 shrink-0">{(parseFloat(s.avgManHours) * 60).toFixed(0)}' / {s.targetMin}'</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(ratio * 100, 100)}%` }} />
@@ -135,7 +135,7 @@ export default function DashboardPage() {
               <div key={exec.id} className="px-5 py-3 flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="font-medium text-sm text-gray-800 truncate">{exec.batch.name}</p>
-                  <p className="text-xs text-gray-500">{exec.batch.recipe.name} · {exec.batch.machine.name} · {exec.user.name}</p>
+                  <p className="text-xs text-gray-500">{exec.batch.recipe.name} · {exec.user.name}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <StatusBadge status={exec.status} />

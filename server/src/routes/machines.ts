@@ -23,13 +23,15 @@ router.get('/:id', authenticate, async (req, res: Response) => {
 })
 
 router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { name, description, code, machineType, capacity, capacityUnit, plantLayoutId } = req.body
+  const { name, code, description, machineType, status, hourlyOperatingCost, capacity, capacityUnit, plantLayoutId } = req.body
   if (!name || !code) { res.status(400).json({ error: 'Nombre y código requeridos' }); return }
   try {
     const machine = await prisma.machine.create({
       data: {
-        name, description, code,
+        name, code, description,
         machineType: machineType || null,
+        status: status || 'ACTIVE',
+        hourlyOperatingCost: hourlyOperatingCost ? parseFloat(hourlyOperatingCost) : 0,
         capacity: capacity ? parseFloat(capacity) : null,
         capacityUnit: capacityUnit || null,
         plantLayoutId: plantLayoutId || null
@@ -42,16 +44,17 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res: Respo
 })
 
 router.put('/:id', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { name, description, code, status, machineType, capacity, capacityUnit, locationX, locationY, plantLayoutId } = req.body
+  const { name, code, description, machineType, status, hourlyOperatingCost, capacity, capacityUnit, locationX, locationY, plantLayoutId } = req.body
   try {
     const machine = await prisma.machine.update({
       where: { id: req.params.id },
       data: {
         ...(name && { name }),
-        ...(description !== undefined && { description }),
         ...(code && { code }),
-        ...(status && { status }),
+        ...(description !== undefined && { description }),
         ...(machineType !== undefined && { machineType: machineType || null }),
+        ...(status && { status }),
+        ...(hourlyOperatingCost !== undefined && { hourlyOperatingCost: parseFloat(hourlyOperatingCost) }),
         ...(capacity !== undefined && { capacity: capacity ? parseFloat(capacity) : null }),
         ...(capacityUnit !== undefined && { capacityUnit: capacityUnit || null }),
         ...(locationX !== undefined && { locationX }),
@@ -65,17 +68,13 @@ router.put('/:id', authenticate, requireAdmin, async (req: AuthRequest, res: Res
   }
 })
 
-// Quick status update (operator can report machine status)
 router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response) => {
   const { status } = req.body
   if (!['ACTIVE', 'MAINTENANCE', 'IDLE'].includes(status)) {
     res.status(400).json({ error: 'Estado inválido' }); return
   }
   try {
-    const machine = await prisma.machine.update({
-      where: { id: req.params.id },
-      data: { status }
-    })
+    const machine = await prisma.machine.update({ where: { id: req.params.id }, data: { status } })
     res.json(machine)
   } catch {
     res.status(404).json({ error: 'Máquina no encontrada' })

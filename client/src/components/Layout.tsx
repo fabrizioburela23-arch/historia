@@ -2,14 +2,16 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import {
   LayoutDashboard, Cpu, GitBranch, Package, Map, Factory,
-  LogOut, ChevronRight, User, FlaskConical
+  LogOut, ChevronRight, User, FlaskConical, Settings2, BookOpen
 } from 'lucide-react'
 
 const adminNav = [
   { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/admin/machines', icon: Cpu, label: 'Máquinas' },
-  { to: '/admin/materials', icon: FlaskConical, label: 'Materiales' },
-  { to: '/admin/recipes', icon: GitBranch, label: 'Flujos Producción' },
+  { to: '/admin/raw-materials', icon: FlaskConical, label: 'Materias Primas' },
+  { to: '/admin/operations', icon: Settings2, label: 'Catálogo Procesos' },
+  { to: '/admin/routings', icon: GitBranch, label: 'Flujos Producción' },
+  { to: '/admin/recipes', icon: BookOpen, label: 'Recetas' },
   { to: '/admin/batches', icon: Package, label: 'Lotes' },
   { to: '/admin/layout', icon: Map, label: 'Layout Planta' }
 ]
@@ -42,7 +44,7 @@ export default function Layout() {
           </div>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {nav.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}

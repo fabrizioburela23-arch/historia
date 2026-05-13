@@ -2,7 +2,6 @@ export type Role = 'ADMIN' | 'OPERATOR'
 export type BatchStatus = 'PENDING' | 'IN_PROGRESS' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 export type StepStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED'
 export type MachineStatus = 'ACTIVE' | 'MAINTENANCE' | 'IDLE'
-export type ProcessType = 'PREPARATION' | 'MIXING' | 'COOKING' | 'COOLING' | 'PACKAGING' | 'QC' | 'TRANSPORT' | 'OTHER'
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 
 export interface User {
@@ -13,21 +12,25 @@ export interface User {
   createdAt?: string
 }
 
+// ---- DATOS MAESTROS ----
+
 export interface PlantLayout {
   id: string
   name: string
-  imageUrl?: string
+  imageBase64?: string
   machines?: Machine[]
   createdAt: string
+  updatedAt: string
 }
 
 export interface Machine {
   id: string
   name: string
-  description?: string
   code: string
-  status: MachineStatus
+  description?: string
   machineType?: string
+  status: MachineStatus
+  hourlyOperatingCost: number
   capacity?: number
   capacityUnit?: string
   locationX?: number
@@ -38,23 +41,19 @@ export interface Machine {
   updatedAt: string
 }
 
-export interface Material {
+export interface RawMaterial {
   id: string
   name: string
   code: string
   unit: string
+  unitCost: number
+  stockQty: number
   description?: string
   createdAt: string
   updatedAt: string
 }
 
-export interface RecipeStepMaterial {
-  id: string
-  materialId: string
-  material: Material
-  quantity: number
-  unit?: string
-}
+// ---- CATÁLOGO DE PROCESOS ----
 
 export interface ChecklistItem {
   id: string
@@ -63,43 +62,95 @@ export interface ChecklistItem {
   order: number
 }
 
-export interface RecipeStep {
+export interface Operation {
+  id: string
+  name: string
+  code: string
+  description?: string
+  defaultDurationMin: number
+  checklistItems: ChecklistItem[]
+  createdAt: string
+  updatedAt: string
+}
+
+// ---- FLUJOS DE PRODUCCIÓN ----
+
+export interface RoutingStep {
   id: string
   order: number
+  operationId: string
+  operation: Operation
+  targetDurationMin: number
+  preferredMachineId?: string
+  preferredMachine?: { id: string; name: string; code: string }
+  notes?: string
+}
+
+export interface Routing {
+  id: string
   name: string
+  version: string
   description?: string
-  processType: ProcessType
-  machineRequired: boolean
-  targetTimeMinutes: number
-  checklistItems: ChecklistItem[]
-  materials: RecipeStepMaterial[]
+  steps: RoutingStep[]
+  createdAt: string
+  updatedAt: string
+}
+
+// ---- RECETAS (BOM) ----
+
+export interface RecipeBOMItem {
+  id: string
+  rawMaterialId: string
+  rawMaterial: RawMaterial
+  quantity: number
+  unit?: string
+  isOptional: boolean
+  notes?: string
 }
 
 export interface Recipe {
   id: string
   name: string
-  description?: string
-  targetTimeMinutes: number
   version: string
-  steps: RecipeStep[]
+  description?: string
+  routingId: string
+  routing: Routing
+  bom: RecipeBOMItem[]
+  yieldQty: number
+  yieldUnit: string
+  salePrice: number
+  taxRate: number
   createdAt: string
   updatedAt: string
 }
+
+export interface RecipeCost {
+  materialCost: number
+  machineCost: number
+  totalCost: number
+  salePrice: number
+  priceExTax: number
+  taxRate: number
+  taxAmount: number
+  margin: number
+  yieldQty: number
+  yieldUnit: string
+}
+
+// ---- LOTES ----
 
 export interface Batch {
   id: string
   name: string
   recipeId: string
-  recipe: { id: string; name: string; targetTimeMinutes?: number }
-  machineId: string
-  machine: { id: string; name: string; code: string; status?: string }
+  recipe: { id: string; name: string; yieldUnit?: string; routing?: { id: string; name: string } }
   status: BatchStatus
   priority: Priority
-  notes?: string
   plannedQty?: number
   actualQty?: number
   unit?: string
   supervisorName?: string
+  notes?: string
   plannedStartAt?: string
   plannedEndAt?: string
   createdBy?: string
@@ -107,6 +158,8 @@ export interface Batch {
   createdAt: string
   updatedAt: string
 }
+
+// ---- EJECUCIONES ----
 
 export interface ChecklistCompletion {
   id: string
@@ -116,17 +169,35 @@ export interface ChecklistCompletion {
   completedAt?: string
 }
 
-export interface StepExecution {
+export interface MaterialConsumption {
   id: string
-  recipeStepId: string
-  recipeStep: RecipeStep
+  rawMaterialId: string
+  rawMaterial: RawMaterial
+  plannedQty?: number
+  actualQty: number
+  unit?: string
+  waste?: number
+  notes?: string
+}
+
+export interface ProcessExecution {
+  id: string
+  routingStepId: string
+  routingStep: RoutingStep
+  machineId?: string
+  machine?: { id: string; name: string; code: string }
+  operatorId?: string
+  operator?: { id: string; name: string }
   status: StepStatus
   startedAt?: string
   completedAt?: string
-  actualTimeSeconds?: number
+  manHours?: number
+  machineHours?: number
   waste?: number
+  wasteUnit?: string
   observations?: string
   checklistCompletions: ChecklistCompletion[]
+  consumptions: MaterialConsumption[]
 }
 
 export interface BatchExecution {
@@ -135,16 +206,17 @@ export interface BatchExecution {
   batch: {
     id: string
     name: string
-    recipe: { id: string; name: string }
-    machine: { id: string; name: string; code: string }
+    recipe: { id: string; name: string; bom?: RecipeBOMItem[] }
   }
   userId: string
   user: { id: string; name: string }
   status: BatchStatus
   startedAt: string
   completedAt?: string
-  stepExecutions: StepExecution[]
+  processExecutions: ProcessExecution[]
 }
+
+// ---- DASHBOARD ----
 
 export interface DashboardMetrics {
   totalBatches: number
@@ -152,12 +224,13 @@ export interface DashboardMetrics {
   inProgressBatches: number
   completedBatches: number
   avgEfficiency: string
-  stepStats: {
+  totalMaterialCost: number
+  opStats: {
     stepId: string
     stepName: string
-    recipeName: string
-    avgActualMinutes: string
-    targetMinutes: number
+    routingName: string
+    avgManHours: string
+    targetMin: number
     count: number
   }[]
   recentExecutions: {
@@ -165,7 +238,7 @@ export interface DashboardMetrics {
     status: string
     startedAt: string
     completedAt?: string
-    batch: { name: string; recipe: { name: string }; machine: { name: string } }
+    batch: { name: string; recipe: { name: string } }
     user: { name: string }
   }[]
   efficiencyChart: {

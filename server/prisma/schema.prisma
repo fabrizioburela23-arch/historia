@@ -7,168 +7,254 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Role: ADMIN | OPERATOR
-// BatchStatus: PENDING | IN_PROGRESS | PAUSED | COMPLETED | CANCELLED
-// StepStatus: PENDING | IN_PROGRESS | COMPLETED | SKIPPED
+// =================================================================
+// Roles:         ADMIN | OPERATOR
 // MachineStatus: ACTIVE | MAINTENANCE | IDLE
-// ProcessType: PREPARATION | MIXING | COOKING | COOLING | PACKAGING | QC | TRANSPORT | OTHER
-// Priority: LOW | NORMAL | HIGH | URGENT
+// BatchStatus:   PENDING | IN_PROGRESS | PAUSED | COMPLETED | CANCELLED
+// StepStatus:    PENDING | IN_PROGRESS | COMPLETED | SKIPPED
+// Priority:      LOW | NORMAL | HIGH | URGENT
+// =================================================================
+
+// -----------------------------------------------------------------
+// CAPA 1: DATOS MAESTROS
+// -----------------------------------------------------------------
 
 model User {
-  id         String           @id @default(cuid())
-  name       String
-  email      String           @unique
-  password   String
-  role       String           @default("OPERATOR")
-  createdAt  DateTime         @default(now())
-  executions BatchExecution[]
+  id             String             @id @default(cuid())
+  name           String
+  email          String             @unique
+  password       String
+  role           String             @default("OPERATOR")
+  createdAt      DateTime           @default(now())
+  batchExecutions BatchExecution[]
+  stepOperations  ProcessExecution[] @relation("StepOperator")
 }
 
 model PlantLayout {
-  id        String    @id @default(cuid())
-  name      String
-  imageUrl  String?
-  machines  Machine[]
-  createdAt DateTime  @default(now())
+  id          String    @id @default(cuid())
+  name        String
+  imageBase64 String?   @db.Text
+  machines    Machine[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Machine {
-  id            String       @id @default(cuid())
-  name          String
-  description   String?
-  code          String       @unique
-  status        String       @default("ACTIVE")
-  machineType   String?
-  capacity      Float?
-  capacityUnit  String?
-  locationX     Float?
-  locationY     Float?
-  plantLayoutId String?
-  plantLayout   PlantLayout? @relation(fields: [plantLayoutId], references: [id])
-  batches       Batch[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id                  String             @id @default(cuid())
+  name                String
+  code                String             @unique
+  description         String?
+  machineType         String?
+  status              String             @default("ACTIVE")
+  hourlyOperatingCost Float              @default(0)
+  capacity            Float?
+  capacityUnit        String?
+  locationX           Float?
+  locationY           Float?
+  plantLayoutId       String?
+  plantLayout         PlantLayout?       @relation(fields: [plantLayoutId], references: [id])
+  preferredInSteps    RoutingStep[]      @relation("PreferredMachine")
+  processExecutions   ProcessExecution[] @relation("UsedMachine")
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 }
 
-model Material {
-  id           String               @id @default(cuid())
+// Materia Prima — inventario de insumos con costo y stock
+model RawMaterial {
+  id           String                @id @default(cuid())
   name         String
-  code         String               @unique
+  code         String                @unique
   unit         String
+  unitCost     Float                 @default(0)
+  stockQty     Float                 @default(0)
   description  String?
-  stepMaterials RecipeStepMaterial[]
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  bomItems     RecipeBOMItem[]
+  consumptions MaterialConsumption[]
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
 }
+
+// -----------------------------------------------------------------
+// CAPA 2: CATÁLOGO DE PROCESOS (Operaciones Estándar)
+//         Ej: "Deshidratación", "Molienda", "Empaquetado"
+// -----------------------------------------------------------------
+
+model Operation {
+  id                 String          @id @default(cuid())
+  name               String
+  code               String          @unique
+  description        String?
+  defaultDurationMin Int             @default(0)
+  checklistItems     ChecklistItem[]
+  routingSteps       RoutingStep[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+}
+
+// -----------------------------------------------------------------
+// CAPA 3: FLUJOS DE PRODUCCIÓN (Routings)
+//         Secuencia ordenada de Operaciones
+// -----------------------------------------------------------------
+
+model Routing {
+  id          String        @id @default(cuid())
+  name        String
+  version     String        @default("1.0")
+  description String?
+  steps       RoutingStep[]
+  recipes     Recipe[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model RoutingStep {
+  id                 String             @id @default(cuid())
+  routingId          String
+  routing            Routing            @relation(fields: [routingId], references: [id], onDelete: Cascade)
+  operationId        String
+  operation          Operation          @relation(fields: [operationId], references: [id])
+  order              Int
+  targetDurationMin  Int                @default(0)
+  preferredMachineId String?
+  preferredMachine   Machine?           @relation("PreferredMachine", fields: [preferredMachineId], references: [id])
+  notes              String?
+  processExecutions  ProcessExecution[]
+  createdAt          DateTime           @default(now())
+}
+
+// -----------------------------------------------------------------
+// CAPA 4: RECETAS (BOM — Lista de Materiales)
+//         Producto final = Materias Primas + Flujo de Producción
+// -----------------------------------------------------------------
 
 model Recipe {
-  id                String       @id @default(cuid())
-  name              String
-  description       String?
-  targetTimeMinutes Int          @default(0)
-  version           String       @default("1.0")
-  steps             RecipeStep[]
-  batches           Batch[]
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id          String          @id @default(cuid())
+  name        String
+  version     String          @default("1.0")
+  description String?
+  routingId   String
+  routing     Routing         @relation(fields: [routingId], references: [id])
+  bom         RecipeBOMItem[]
+  yieldQty    Float           @default(1)
+  yieldUnit   String          @default("unidades")
+  salePrice   Float           @default(0)
+  taxRate     Float           @default(0.19)
+  batches     Batch[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
-model RecipeStep {
-  id                String               @id @default(cuid())
-  recipeId          String
-  recipe            Recipe               @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  order             Int
-  name              String
-  description       String?
-  processType       String               @default("OTHER")
-  machineRequired   Boolean              @default(false)
-  targetTimeMinutes Int                  @default(0)
-  checklistItems    ChecklistItem[]
-  stepExecutions    StepExecution[]
-  materials         RecipeStepMaterial[]
-  createdAt         DateTime             @default(now())
+model RecipeBOMItem {
+  id            String      @id @default(cuid())
+  recipeId      String
+  recipe        Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  rawMaterialId String
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  quantity      Float
+  unit          String?
+  isOptional    Boolean     @default(false)
+  notes         String?
+
+  @@unique([recipeId, rawMaterialId])
 }
 
-model RecipeStepMaterial {
-  id         String     @id @default(cuid())
-  stepId     String
-  step       RecipeStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
-  materialId String
-  material   Material   @relation(fields: [materialId], references: [id])
-  quantity   Float
-  unit       String?
-
-  @@unique([stepId, materialId])
-}
-
-model ChecklistItem {
-  id           String               @id @default(cuid())
-  recipeStepId String
-  recipeStep   RecipeStep           @relation(fields: [recipeStepId], references: [id], onDelete: Cascade)
-  label        String
-  required     Boolean              @default(true)
-  order        Int                  @default(0)
-  completions  ChecklistCompletion[]
-}
+// -----------------------------------------------------------------
+// CAPA 5: LOTES DE PRODUCCIÓN (Órdenes de Trabajo)
+// -----------------------------------------------------------------
 
 model Batch {
   id             String           @id @default(cuid())
   name           String
   recipeId       String
   recipe         Recipe           @relation(fields: [recipeId], references: [id])
-  machineId      String
-  machine        Machine          @relation(fields: [machineId], references: [id])
   status         String           @default("PENDING")
   priority       String           @default("NORMAL")
-  notes          String?
   plannedQty     Float?
   actualQty      Float?
   unit           String?
   supervisorName String?
+  notes          String?
   plannedStartAt DateTime?
   plannedEndAt   DateTime?
-  createdById    String?
   createdBy      String?
+  createdById    String?
   executions     BatchExecution[]
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 }
 
 model BatchExecution {
-  id             String          @id @default(cuid())
-  batchId        String
-  batch          Batch           @relation(fields: [batchId], references: [id])
-  userId         String
-  user           User            @relation(fields: [userId], references: [id])
-  status         String          @default("IN_PROGRESS")
-  startedAt      DateTime        @default(now())
-  completedAt    DateTime?
-  stepExecutions StepExecution[]
+  id                String             @id @default(cuid())
+  batchId           String
+  batch             Batch              @relation(fields: [batchId], references: [id])
+  userId            String
+  user              User               @relation(fields: [userId], references: [id])
+  status            String             @default("IN_PROGRESS")
+  startedAt         DateTime           @default(now())
+  completedAt       DateTime?
+  processExecutions ProcessExecution[]
 }
 
-model StepExecution {
-  id                   String               @id @default(cuid())
-  batchExecutionId     String
-  batchExecution       BatchExecution       @relation(fields: [batchExecutionId], references: [id])
-  recipeStepId         String
-  recipeStep           RecipeStep           @relation(fields: [recipeStepId], references: [id])
-  status               String               @default("PENDING")
-  startedAt            DateTime?
-  completedAt          DateTime?
-  actualTimeSeconds    Int?
-  waste                Float?
-  observations         String?
+// -----------------------------------------------------------------
+// CAPA 6: REGISTRO DE EJECUCIÓN DE PROCESOS
+//         El núcleo del MES — lo que el operario registra por paso
+// -----------------------------------------------------------------
+
+model ProcessExecution {
+  id               String                @id @default(cuid())
+  batchExecutionId String
+  batchExecution   BatchExecution        @relation(fields: [batchExecutionId], references: [id])
+  routingStepId    String
+  routingStep      RoutingStep           @relation(fields: [routingStepId], references: [id])
+  machineId        String?
+  machine          Machine?              @relation("UsedMachine", fields: [machineId], references: [id])
+  operatorId       String?
+  operator         User?                 @relation("StepOperator", fields: [operatorId], references: [id])
+  status           String                @default("PENDING")
+  startedAt        DateTime?
+  completedAt      DateTime?
+  manHours         Float?
+  machineHours     Float?
+  waste            Float?
+  wasteUnit        String?
+  observations     String?
+  consumptions     MaterialConsumption[]
   checklistCompletions ChecklistCompletion[]
 }
 
-model ChecklistCompletion {
-  id              String        @id @default(cuid())
-  stepExecutionId String
-  stepExecution   StepExecution @relation(fields: [stepExecutionId], references: [id])
-  checklistItemId String
-  checklistItem   ChecklistItem @relation(fields: [checklistItemId], references: [id])
-  completed       Boolean       @default(false)
-  completedAt     DateTime?
+// Consumo real de materia prima por proceso (planificado vs real)
+model MaterialConsumption {
+  id                 String           @id @default(cuid())
+  processExecutionId String
+  processExecution   ProcessExecution @relation(fields: [processExecutionId], references: [id])
+  rawMaterialId      String
+  rawMaterial        RawMaterial      @relation(fields: [rawMaterialId], references: [id])
+  plannedQty         Float?
+  actualQty          Float
+  unit               String?
+  waste              Float?
+  notes              String?
+}
 
-  @@unique([stepExecutionId, checklistItemId])
+// Checklist vinculado a la Operación (reutilizable en cualquier flujo)
+model ChecklistItem {
+  id          String                @id @default(cuid())
+  operationId String
+  operation   Operation             @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  label       String
+  required    Boolean               @default(true)
+  order       Int                   @default(0)
+  completions ChecklistCompletion[]
+}
+
+model ChecklistCompletion {
+  id                 String           @id @default(cuid())
+  processExecutionId String
+  processExecution   ProcessExecution @relation(fields: [processExecutionId], references: [id])
+  checklistItemId    String
+  checklistItem      ChecklistItem    @relation(fields: [checklistItemId], references: [id])
+  completed          Boolean          @default(false)
+  completedAt        DateTime?
+
+  @@unique([processExecutionId, checklistItemId])
 }

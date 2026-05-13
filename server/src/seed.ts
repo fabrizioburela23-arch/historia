@@ -6,7 +6,6 @@ const prisma = new PrismaClient()
 async function main() {
   console.log('🌱 Sembrando base de datos...')
 
-  // Users
   const adminPwd = await bcrypt.hash('admin123', 10)
   const opPwd = await bcrypt.hash('op123', 10)
 
@@ -24,106 +23,118 @@ async function main() {
 
   console.log(`✅ Usuarios: ${admin.email} (admin123) | ${operator.email} (op123)`)
 
-  // Machines
   const machine1 = await prisma.machine.upsert({
-    where: { code: 'PROC-TOM-L1' },
+    where: { code: 'DESH-01' },
     update: {},
     create: {
-      name: 'Procesadora de Tomate Línea 1',
-      description: 'Procesadora industrial para tomate fresco',
-      code: 'PROC-TOM-L1'
+      name: 'Deshidratadora Nro 1',
+      code: 'DESH-01',
+      machineType: 'Deshidratadora',
+      status: 'ACTIVE',
+      hourlyOperatingCost: 5.0
     }
   })
 
   const machine2 = await prisma.machine.upsert({
-    where: { code: 'MEZC-L2' },
+    where: { code: 'MOLI-01' },
     update: {},
     create: {
-      name: 'Mezcladora Línea 2',
-      description: 'Mezcladora para salsas y purés',
-      code: 'MEZC-L2'
+      name: 'Molino de Especias',
+      code: 'MOLI-01',
+      machineType: 'Cortadora',
+      status: 'ACTIVE',
+      hourlyOperatingCost: 3.5
     }
   })
 
-  const machine3 = await prisma.machine.upsert({
-    where: { code: 'ENVA-L3' },
+  console.log(`✅ Máquinas: ${machine1.code}, ${machine2.code}`)
+
+  const mat1 = await prisma.rawMaterial.upsert({
+    where: { code: 'MP-LOCOTO' },
+    update: {},
+    create: { name: 'Locoto fresco', code: 'MP-LOCOTO', unit: 'kg', unitCost: 2.5, stockQty: 100 }
+  })
+
+  const mat2 = await prisma.rawMaterial.upsert({
+    where: { code: 'MP-SAL' },
+    update: {},
+    create: { name: 'Sal fina', code: 'MP-SAL', unit: 'kg', unitCost: 0.8, stockQty: 50 }
+  })
+
+  console.log(`✅ Materias primas: ${mat1.code}, ${mat2.code}`)
+
+  const op1 = await prisma.operation.upsert({
+    where: { code: 'OP-LIMPIEZA' },
     update: {},
     create: {
-      name: 'Envasadora Automática L3',
-      description: 'Línea de envasado aséptico',
-      code: 'ENVA-L3'
+      name: 'Limpieza y Preparación',
+      code: 'OP-LIMPIEZA',
+      defaultDurationMin: 15,
+      checklistItems: {
+        create: [
+          { label: 'Limpiar equipo', required: true, order: 0 },
+          { label: 'Verificar temperatura', required: true, order: 1 }
+        ]
+      }
     }
   })
 
-  console.log(`✅ Máquinas: ${machine1.code}, ${machine2.code}, ${machine3.code}`)
+  const op2 = await prisma.operation.upsert({
+    where: { code: 'OP-DESH' },
+    update: {},
+    create: {
+      name: 'Deshidratación',
+      code: 'OP-DESH',
+      defaultDurationMin: 120,
+      checklistItems: {
+        create: [
+          { label: 'Controlar temperatura (60-70°C)', required: true, order: 0 },
+          { label: 'Registrar % humedad final', required: true, order: 1 }
+        ]
+      }
+    }
+  })
 
-  // Recipe: Procesado de Tomate
-  const existingRecipe = await prisma.recipe.findFirst({ where: { name: 'Procesado de Tomate' } })
+  console.log(`✅ Operaciones: ${op1.code}, ${op2.code}`)
+
+  const existingRouting = await prisma.routing.findFirst({ where: { name: 'Línea Deshidratados' } })
+  let routing
+  if (!existingRouting) {
+    routing = await prisma.routing.create({
+      data: {
+        name: 'Línea Deshidratados',
+        version: '1.0',
+        description: 'Flujo estándar para productos deshidratados',
+        steps: {
+          create: [
+            { order: 1, operationId: op1.id, targetDurationMin: 15, preferredMachineId: machine1.id },
+            { order: 2, operationId: op2.id, targetDurationMin: 120, preferredMachineId: machine1.id }
+          ]
+        }
+      }
+    })
+    console.log(`✅ Flujo creado: ${routing.name}`)
+  } else {
+    routing = existingRouting
+    console.log(`ℹ️  Flujo ya existe: ${routing.name}`)
+  }
+
+  const existingRecipe = await prisma.recipe.findFirst({ where: { name: 'Locoto Deshidratado Premium' } })
   let recipe
   if (!existingRecipe) {
     recipe = await prisma.recipe.create({
       data: {
-        name: 'Procesado de Tomate',
-        description: 'Receta estándar para el procesado de tomate fresco a salsa',
-        targetTimeMinutes: 75,
-        steps: {
+        name: 'Locoto Deshidratado Premium',
+        version: '1.0',
+        routingId: routing.id,
+        yieldQty: 10,
+        yieldUnit: 'kg',
+        salePrice: 120.0,
+        taxRate: 0.19,
+        bom: {
           create: [
-            {
-              order: 1,
-              name: 'Preparación y Limpieza',
-              description: 'Limpieza y saneamiento del equipo antes de iniciar',
-              targetTimeMinutes: 10,
-              checklistItems: {
-                create: [
-                  { label: 'Limpiar tolva de entrada', required: true, order: 0 },
-                  { label: 'Verificar temperatura de proceso (60-65°C)', required: true, order: 1 },
-                  { label: 'Revisar filtros de salida', required: true, order: 2 },
-                  { label: 'Comprobar presión hidráulica', required: false, order: 3 }
-                ]
-              }
-            },
-            {
-              order: 2,
-              name: 'Carga de Materia Prima',
-              description: 'Pesaje y carga del tomate fresco',
-              targetTimeMinutes: 15,
-              checklistItems: {
-                create: [
-                  { label: 'Pesar tomates (min 500 kg)', required: true, order: 0 },
-                  { label: 'Verificar calidad visual (sin moho)', required: true, order: 1 },
-                  { label: 'Registrar lote de proveedor', required: true, order: 2 },
-                  { label: 'Añadir aditivos según especificación', required: false, order: 3 }
-                ]
-              }
-            },
-            {
-              order: 3,
-              name: 'Procesado Principal',
-              description: 'Ciclo principal de procesado y pasteurización',
-              targetTimeMinutes: 30,
-              checklistItems: {
-                create: [
-                  { label: 'Monitorear temperatura cada 5 min', required: true, order: 0 },
-                  { label: 'Verificar velocidad de tornillo (RPM)', required: true, order: 1 },
-                  { label: 'Control de Brix (°Brix = 12-14)', required: true, order: 2 },
-                  { label: 'Tomar muestra para laboratorio', required: false, order: 3 }
-                ]
-              }
-            },
-            {
-              order: 4,
-              name: 'Descarga y Limpieza Final',
-              description: 'Descarga del producto, registro de mermas y limpieza CIP',
-              targetTimeMinutes: 20,
-              checklistItems: {
-                create: [
-                  { label: 'Registrar merma de proceso (%)', required: true, order: 0 },
-                  { label: 'Limpiar tolva de salida', required: true, order: 1 },
-                  { label: 'Ejecutar ciclo CIP (15 min)', required: true, order: 2 },
-                  { label: 'Registrar volumen de producto final', required: true, order: 3 }
-                ]
-              }
-            }
+            { rawMaterialId: mat1.id, quantity: 80, unit: 'kg' },
+            { rawMaterialId: mat2.id, quantity: 0.5, unit: 'kg' }
           ]
         }
       }
@@ -134,91 +145,24 @@ async function main() {
     console.log(`ℹ️  Receta ya existe: ${recipe.name}`)
   }
 
-  // Recipe 2
-  const existingRecipe2 = await prisma.recipe.findFirst({ where: { name: 'Mezclado de Salsa Base' } })
-  if (!existingRecipe2) {
-    await prisma.recipe.create({
-      data: {
-        name: 'Mezclado de Salsa Base',
-        description: 'Preparación de salsa base para múltiples productos',
-        targetTimeMinutes: 45,
-        steps: {
-          create: [
-            {
-              order: 1,
-              name: 'Preparación de ingredientes',
-              description: 'Medir y preparar todos los ingredientes',
-              targetTimeMinutes: 10,
-              checklistItems: {
-                create: [
-                  { label: 'Pesar puré de tomate (200 kg)', required: true, order: 0 },
-                  { label: 'Medir especias según fórmula', required: true, order: 1 }
-                ]
-              }
-            },
-            {
-              order: 2,
-              name: 'Mezclado y homogenización',
-              description: 'Mezcla a velocidad controlada',
-              targetTimeMinutes: 25,
-              checklistItems: {
-                create: [
-                  { label: 'Verificar homogeneidad visual', required: true, order: 0 },
-                  { label: 'Control de pH (4.0-4.5)', required: true, order: 1 },
-                  { label: 'Ajuste de sal si necesario', required: false, order: 2 }
-                ]
-              }
-            },
-            {
-              order: 3,
-              name: 'Aprobación y transferencia',
-              description: 'Revisión final y transferencia a envasado',
-              targetTimeMinutes: 10,
-              checklistItems: {
-                create: [
-                  { label: 'Aprobación de calidad firmada', required: true, order: 0 },
-                  { label: 'Registrar batch number', required: true, order: 1 }
-                ]
-              }
-            }
-          ]
-        }
-      }
-    })
-    console.log('✅ Receta 2 creada: Mezclado de Salsa Base')
-  }
-
-  // Batches
-  const existingBatch = await prisma.batch.findFirst({ where: { name: 'LOTE-2024-001' } })
+  const existingBatch = await prisma.batch.findFirst({ where: { name: 'LOTE-2025-001' } })
   if (!existingBatch) {
     await prisma.batch.create({
       data: {
-        name: 'LOTE-2024-001',
+        name: 'LOTE-2025-001',
         recipeId: recipe.id,
-        machineId: machine1.id,
         status: 'PENDING',
-        notes: 'Primer lote de prueba - tomate variedad Río Grande'
+        priority: 'NORMAL',
+        plannedQty: 10,
+        unit: 'kg',
+        supervisorName: 'Carlos Operario'
       }
     })
-    console.log('✅ Lote creado: LOTE-2024-001')
-  }
-
-  const existingBatch2 = await prisma.batch.findFirst({ where: { name: 'LOTE-2024-002' } })
-  if (!existingBatch2) {
-    await prisma.batch.create({
-      data: {
-        name: 'LOTE-2024-002',
-        recipeId: recipe.id,
-        machineId: machine1.id,
-        status: 'PENDING',
-        notes: 'Lote 2 - tomate cherry procesado'
-      }
-    })
-    console.log('✅ Lote creado: LOTE-2024-002')
+    console.log('✅ Lote creado: LOTE-2025-001')
   }
 
   console.log('\n🏭 Base de datos lista.\n')
-  console.log('  Admin:    admin@mes.com   / admin123')
+  console.log('  Admin:    admin@mes.com    / admin123')
   console.log('  Operario: operario@mes.com / op123\n')
 }
 

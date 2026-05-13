@@ -1,23 +1,13 @@
 import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
-import multer from 'multer'
-import path from 'path'
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth'
 
 const router = Router()
 const prisma = new PrismaClient()
 
-const storage = multer.diskStorage({
-  destination: path.join(__dirname, '../../uploads'),
-  filename: (_req, file, cb) => {
-    cb(null, `layout-${Date.now()}${path.extname(file.originalname)}`)
-  }
-})
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } })
-
 router.get('/', authenticate, async (_req, res: Response) => {
   const layouts = await prisma.plantLayout.findMany({
-    include: { machines: { select: { id: true, name: true, code: true, locationX: true, locationY: true } } },
+    include: { machines: { select: { id: true, name: true, code: true, status: true, locationX: true, locationY: true } } },
     orderBy: { createdAt: 'desc' }
   })
   res.json(layouts)
@@ -39,14 +29,18 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res: Respo
   res.status(201).json(layout)
 })
 
-router.post('/:id/upload', authenticate, requireAdmin, upload.single('image'), async (req: AuthRequest, res: Response) => {
-  if (!req.file) { res.status(400).json({ error: 'Archivo requerido' }); return }
-  const imageUrl = `/uploads/${req.file.filename}`
+// Guardar imagen como Base64 en la BD (reemplaza Multer/disco)
+router.put('/:id/image', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+  const { imageBase64 } = req.body
+  if (!imageBase64) { res.status(400).json({ error: 'Imagen en Base64 requerida' }); return }
+  if (!imageBase64.startsWith('data:image/')) {
+    res.status(400).json({ error: 'Formato Base64 inválido (debe comenzar con data:image/)' }); return
+  }
   const layout = await prisma.plantLayout.update({
     where: { id: req.params.id },
-    data: { imageUrl }
+    data: { imageBase64 }
   })
-  res.json(layout)
+  res.json({ id: layout.id, name: layout.name, hasImage: !!layout.imageBase64 })
 })
 
 router.put('/:id/machine-pin', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
@@ -57,6 +51,19 @@ router.put('/:id/machine-pin', authenticate, requireAdmin, async (req: AuthReque
     data: { locationX, locationY, plantLayoutId: req.params.id }
   })
   res.json(machine)
+})
+
+router.put('/:id', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+  const { name } = req.body
+  try {
+    const layout = await prisma.plantLayout.update({
+      where: { id: req.params.id },
+      data: { ...(name && { name }) }
+    })
+    res.json(layout)
+  } catch {
+    res.status(404).json({ error: 'Layout no encontrado' })
+  }
 })
 
 router.delete('/:id', authenticate, requireAdmin, async (req, res: Response) => {

@@ -13,12 +13,20 @@ router.get('/metrics', authenticate, requireAdmin, async (_req: AuthRequest, res
     prisma.batch.count({ where: { status: 'COMPLETED' } })
   ])
 
-  // OEE: ratio of actual vs target time for completed executions
+  // Eficiencia: ratio tiempo real vs objetivo de ejecuciones completadas
   const completedExecutions = await prisma.batchExecution.findMany({
     where: { status: 'COMPLETED' },
     include: {
-      stepExecutions: { select: { actualTimeSeconds: true } },
-      batch: { include: { recipe: { select: { targetTimeMinutes: true } } } }
+      processExecutions: { select: { manHours: true, machineHours: true, startedAt: true, completedAt: true } },
+      batch: {
+        include: {
+          recipe: {
+            include: {
+              routing: { include: { steps: { select: { targetDurationMin: true } } } }
+            }
+          }
+        }
+      }
     },
     orderBy: { completedAt: 'desc' },
     take: 20
@@ -27,71 +35,84 @@ router.get('/metrics', authenticate, requireAdmin, async (_req: AuthRequest, res
   let avgEfficiency = 0
   if (completedExecutions.length > 0) {
     const efficiencies = completedExecutions.map(exec => {
-      const totalActual = exec.stepExecutions.reduce((sum, s) => sum + (s.actualTimeSeconds || 0), 0) / 60
-      const target = exec.batch.recipe.targetTimeMinutes
-      if (!target || totalActual === 0) return 100
-      return Math.min(200, (target / totalActual) * 100)
+      const totalTarget = exec.batch.recipe.routing.steps.reduce((s, step) => s + step.targetDurationMin, 0)
+      const totalActual = exec.processExecutions.reduce((s, p) => {
+        if (p.startedAt && p.completedAt) {
+          return s + (p.completedAt.getTime() - p.startedAt.getTime()) / 60000
+        }
+        return s
+      }, 0)
+      if (!totalTarget || totalActual === 0) return 100
+      return Math.min(200, (totalTarget / totalActual) * 100)
     })
     avgEfficiency = efficiencies.reduce((a, b) => a + b, 0) / efficiencies.length
   }
 
-  // Bottleneck: steps with highest avg time vs target
-  const stepStats = await prisma.stepExecution.groupBy({
-    by: ['recipeStepId'],
-    _avg: { actualTimeSeconds: true },
+  // Operaciones con mayor tiempo promedio (cuellos de botella)
+  const opStats = await prisma.processExecution.groupBy({
+    by: ['routingStepId'],
+    _avg: { manHours: true },
     _count: { id: true },
-    where: { status: 'COMPLETED', actualTimeSeconds: { not: null } }
+    where: { status: 'COMPLETED', manHours: { not: null } }
   })
 
-  const stepDetails = await Promise.all(
-    stepStats.slice(0, 5).map(async s => {
-      const step = await prisma.recipeStep.findUnique({
-        where: { id: s.recipeStepId },
-        select: { name: true, targetTimeMinutes: true, recipe: { select: { name: true } } }
+  const opDetails = await Promise.all(
+    opStats.slice(0, 5).map(async s => {
+      const step = await prisma.routingStep.findUnique({
+        where: { id: s.routingStepId },
+        select: { targetDurationMin: true, operation: { select: { name: true } }, routing: { select: { name: true } } }
       })
       return {
-        stepId: s.recipeStepId,
-        stepName: step?.name || 'Desconocido',
-        recipeName: step?.recipe?.name || '',
-        avgActualMinutes: ((s._avg.actualTimeSeconds || 0) / 60).toFixed(1),
-        targetMinutes: step?.targetTimeMinutes || 0,
+        stepId: s.routingStepId,
+        stepName: step?.operation?.name || 'Desconocido',
+        routingName: step?.routing?.name || '',
+        avgManHours: (s._avg.manHours || 0).toFixed(2),
+        targetMin: step?.targetDurationMin || 0,
         count: s._count.id
       }
     })
   )
 
-  // Recent executions
+  // Ejecuciones recientes
   const recentExecutions = await prisma.batchExecution.findMany({
     include: {
-      batch: { include: { recipe: { select: { name: true } }, machine: { select: { name: true } } } },
+      batch: { include: { recipe: { select: { name: true } } } },
       user: { select: { name: true } }
     },
     orderBy: { startedAt: 'desc' },
     take: 10
   })
 
-  // Efficiency per recent execution for chart
+  // Gráfico eficiencia
   const efficiencyChart = completedExecutions.slice(0, 10).map(exec => {
-    const totalActualMin = exec.stepExecutions.reduce((sum, s) => sum + (s.actualTimeSeconds || 0), 0) / 60
+    const totalTarget = exec.batch.recipe.routing.steps.reduce((s, step) => s + step.targetDurationMin, 0)
+    const totalActual = exec.processExecutions.reduce((s, p) => {
+      if (p.startedAt && p.completedAt) {
+        return s + (p.completedAt.getTime() - p.startedAt.getTime()) / 60000
+      }
+      return s
+    }, 0)
     return {
       batchId: exec.batchId,
-      actualMinutes: totalActualMin.toFixed(1),
-      targetMinutes: exec.batch.recipe.targetTimeMinutes,
-      efficiency: totalActualMin > 0
-        ? ((exec.batch.recipe.targetTimeMinutes / totalActualMin) * 100).toFixed(1)
-        : '100'
+      actualMinutes: totalActual.toFixed(1),
+      targetMinutes: totalTarget,
+      efficiency: totalActual > 0 ? ((totalTarget / totalActual) * 100).toFixed(1) : '100'
     }
   })
 
+  // Costos acumulados del período
+  const materialCosts = await prisma.materialConsumption.findMany({
+    include: { rawMaterial: { select: { unitCost: true } } }
+  })
+  const totalMaterialCost = materialCosts.reduce((acc, mc) => acc + mc.actualQty * mc.rawMaterial.unitCost, 0)
+
   res.json({
-    totalBatches,
-    pendingBatches,
-    inProgressBatches,
-    completedBatches,
+    totalBatches, pendingBatches, inProgressBatches, completedBatches,
     avgEfficiency: avgEfficiency.toFixed(1),
-    stepStats: stepDetails,
+    opStats: opDetails,
     recentExecutions,
-    efficiencyChart
+    efficiencyChart,
+    totalMaterialCost: +totalMaterialCost.toFixed(2)
   })
 })
 

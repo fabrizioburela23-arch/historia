@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Play, Clock, CheckCircle, Package, Cpu, Plus, AlertTriangle, Calendar, User, X } from 'lucide-react'
+import { Play, Clock, CheckCircle, Package, Plus, AlertTriangle, Calendar, User, X } from 'lucide-react'
 import api from '../../lib/api'
-import { Batch, Recipe, Machine, Priority } from '../../types'
+import { Batch, Recipe, Priority } from '../../types'
 import StatusBadge from '../../components/StatusBadge'
 import Modal from '../../components/Modal'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 
 const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
   { value: 'LOW', label: 'Baja' },
@@ -14,73 +16,45 @@ const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
 ]
 
 interface BatchForm {
-  name: string; recipeId: string; machineId: string; notes: string
-  priority: Priority; plannedQty: string; unit: string
-  supervisorName: string; plannedStartAt: string
+  name: string
+  recipeId: string
+  notes: string
+  priority: Priority
+  plannedQty: string
+  unit: string
+  supervisorName: string
+  plannedStartAt: string
+}
+
+const emptyForm: BatchForm = {
+  name: '', recipeId: '', notes: '', priority: 'NORMAL',
+  plannedQty: '', unit: '', supervisorName: '', plannedStartAt: ''
 }
 
 export default function OperatorHomePage() {
+  const navigate = useNavigate()
   const [batches, setBatches] = useState<Batch[]>([])
   const [recipes, setRecipes] = useState<Recipe[]>([])
-  const [machines, setMachines] = useState<Machine[]>([])
   const [loading, setLoading] = useState(true)
-  const [starting, setStarting] = useState<string | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [form, setForm] = useState<BatchForm>({
-    name: '', recipeId: '', machineId: '', notes: '',
-    priority: 'NORMAL', plannedQty: '', unit: '', supervisorName: '', plannedStartAt: ''
-  })
+  const [creating, setCreating] = useState(false)
+  const [form, setForm] = useState<BatchForm>(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [starting, setStarting] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const navigate = useNavigate()
 
   async function load() {
-    const [batchRes, recipeRes, machineRes] = await Promise.all([
+    const [b, r] = await Promise.all([
       api.get<Batch[]>('/batches'),
-      api.get<Recipe[]>('/recipes'),
-      api.get<Machine[]>('/machines')
+      api.get<Recipe[]>('/recipes')
     ])
-    setBatches(batchRes.data.filter(b => ['PENDING', 'IN_PROGRESS', 'PAUSED'].includes(b.status)))
-    setRecipes(recipeRes.data)
-    setMachines(machineRes.data)
+    setBatches(b.data)
+    setRecipes(r.data)
     setLoading(false)
   }
   useEffect(() => { load() }, [])
 
-  async function handleStart(batch: Batch) {
-    setStarting(batch.id)
-    try {
-      if (batch.status === 'IN_PROGRESS' && batch.executions && batch.executions.length > 0) {
-        const activeExec = batch.executions.find(e => e.status === 'IN_PROGRESS' || e.status === 'PAUSED')
-        if (activeExec) {
-          navigate(`/operator/execution/${activeExec.id}`)
-          return
-        }
-      }
-      const { data } = await api.post(`/batches/${batch.id}/start`)
-      navigate(`/operator/execution/${data.id}`)
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-      alert(msg || 'Error al iniciar el lote')
-    } finally {
-      setStarting(null)
-    }
-  }
-
-  function openCreateBatch() {
-    setForm({
-      name: `LOTE-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
-      recipeId: '', machineId: '', notes: '',
-      priority: 'NORMAL', plannedQty: '', unit: '', supervisorName: '', plannedStartAt: ''
-    })
-    setError('')
-    setModalOpen(true)
-  }
-
-  async function handleCreateBatch() {
-    if (!form.name || !form.recipeId || !form.machineId) {
-      setError('Nombre, flujo y máquina son requeridos'); return
-    }
+  async function handleCreate() {
+    if (!form.name || !form.recipeId) { setError('Nombre y receta son requeridos'); return }
     setSaving(true)
     try {
       await api.post('/batches', {
@@ -88,213 +62,204 @@ export default function OperatorHomePage() {
         plannedQty: form.plannedQty ? parseFloat(form.plannedQty) : undefined,
         plannedStartAt: form.plannedStartAt || undefined
       })
-      setModalOpen(false)
+      setCreating(false)
+      setForm(emptyForm)
       load()
     } catch (e: unknown) {
-      setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al crear lote')
+      setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error')
     } finally { setSaving(false) }
   }
 
-  const priorityColor = (p: Priority) => ({
-    LOW: 'text-gray-500', NORMAL: 'text-blue-600', HIGH: 'text-orange-500', URGENT: 'text-red-600'
-  }[p] || 'text-gray-500')
-
-  const statusIcon = (status: string) => {
-    if (status === 'COMPLETED') return <CheckCircle size={20} className="text-green-500" />
-    if (status === 'IN_PROGRESS') return <Clock size={20} className="text-blue-500" />
-    return <Package size={20} className="text-gray-400" />
+  async function handleStart(batchId: string) {
+    setStarting(batchId)
+    try {
+      const { data } = await api.post(`/batches/${batchId}/start`)
+      navigate(`/operator/execution/${data.id}`)
+    } catch (e: unknown) {
+      alert((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al iniciar')
+    } finally { setStarting(null) }
   }
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin h-8 w-8 rounded-full border-b-2 border-indigo-600" />
-    </div>
-  )
+  function openCreate() {
+    setForm(emptyForm)
+    setError('')
+    setCreating(true)
+  }
+
+  const pending = batches.filter(b => b.status === 'PENDING')
+  const inProgress = batches.filter(b => b.status === 'IN_PROGRESS')
+  const recent = batches.filter(b => b.status === 'COMPLETED' || b.status === 'CANCELLED').slice(0, 5)
+
+  function PriorityDot({ priority }: { priority: Priority }) {
+    const colors: Record<Priority, string> = { LOW: 'bg-gray-300', NORMAL: 'bg-blue-400', HIGH: 'bg-orange-400', URGENT: 'bg-red-500' }
+    return <span className={`inline-block w-2 h-2 rounded-full ${colors[priority]}`} />
+  }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50 p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mis Lotes de Trabajo</h1>
-          <p className="text-gray-500 text-sm mt-1">Selecciona un lote para comenzar o crea uno nuevo</p>
+          <h1 className="text-2xl font-bold text-gray-900">Panel del Operario</h1>
+          <p className="text-gray-500 text-sm mt-1">{inProgress.length} en proceso · {pending.length} pendientes</p>
         </div>
-        <button onClick={openCreateBatch} className="btn-primary">
-          <Plus size={16} /> Crear Lote
-        </button>
+        <button onClick={openCreate} className="btn-primary"><Plus size={16} /> Nuevo Lote</button>
       </div>
 
-      {batches.length === 0 ? (
-        <div className="card flex flex-col items-center justify-center py-20 text-gray-400">
-          <Package size={56} className="mb-4 opacity-20" />
-          <p className="text-lg font-medium text-gray-500">Sin lotes pendientes</p>
-          <p className="text-sm mt-1">Crea un lote nuevo o espera que el administrador te asigne uno</p>
-          <button onClick={openCreateBatch} className="btn-primary mt-4">
-            <Plus size={16} /> Crear mi primer lote
-          </button>
-        </div>
+      {loading ? (
+        <div className="flex justify-center h-32 items-center"><div className="animate-spin h-6 w-6 rounded-full border-b-2 border-indigo-600" /></div>
       ) : (
-        <div className="space-y-4">
-          {/* Urgent batches first */}
-          {batches
-            .sort((a, b) => {
-              const order = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 }
-              return (order[a.priority] ?? 2) - (order[b.priority] ?? 2)
-            })
-            .map(batch => (
-              <div
-                key={batch.id}
-                className={`card p-5 flex items-center gap-4 transition-shadow hover:shadow-md ${
-                  batch.status === 'IN_PROGRESS' ? 'ring-2 ring-blue-200' : ''
-                } ${batch.priority === 'URGENT' ? 'border-red-200' : ''}`}
-              >
-                <div className={`p-3 rounded-xl shrink-0 ${
-                  batch.status === 'IN_PROGRESS' ? 'bg-blue-50' :
-                  batch.status === 'PAUSED' ? 'bg-yellow-50' : 'bg-gray-50'
-                }`}>
-                  {statusIcon(batch.status)}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <h2 className="font-bold text-gray-900">{batch.name}</h2>
-                    <StatusBadge status={batch.status} />
-                    {batch.priority && batch.priority !== 'NORMAL' && (
-                      <span className={`text-xs font-medium ${priorityColor(batch.priority)}`}>
-                        {batch.priority === 'URGENT' && <AlertTriangle size={11} className="inline mr-0.5" />}
-                        {PRIORITY_OPTIONS.find(p => p.value === batch.priority)?.label}
-                      </span>
-                    )}
+        <>
+          {/* In progress */}
+          {inProgress.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">En Proceso</h2>
+              <div className="space-y-3">
+                {inProgress.map(b => (
+                  <div key={b.id} className="card px-5 py-4 border-l-4 border-l-indigo-500">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-indigo-50 rounded-lg shrink-0"><Package size={16} className="text-indigo-600" /></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-gray-800">{b.name}</p>
+                          <PriorityDot priority={b.priority} />
+                        </div>
+                        <p className="text-xs text-gray-500">{b.recipe.name}</p>
+                        {b.executions && b.executions.length > 0 && (
+                          <p className="text-xs text-gray-400 mt-1">{b.executions.length} ejecución(es) activa(s)</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => b.executions?.[0] && navigate(`/operator/execution/${b.executions[0].id}`)}
+                        className="btn-primary shrink-0"
+                      >
+                        <Play size={14} /> Continuar
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                      {batch.recipe.name}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Cpu size={13} />
-                      {batch.machine.name}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Clock size={13} />
-                      {batch.recipe.targetTimeMinutes || '?'} min estimados
-                    </span>
-                    {batch.plannedQty && (
-                      <span className="flex items-center gap-1.5">
-                        <Package size={13} />
-                        {batch.plannedQty} {batch.unit}
-                      </span>
-                    )}
-                    {batch.supervisorName && (
-                      <span className="flex items-center gap-1.5">
-                        <User size={13} />
-                        {batch.supervisorName}
-                      </span>
-                    )}
-                    {batch.plannedStartAt && (
-                      <span className="flex items-center gap-1.5">
-                        <Calendar size={13} />
-                        {new Date(batch.plannedStartAt).toLocaleDateString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    )}
-                  </div>
-                  {batch.notes && <p className="text-xs text-gray-400 mt-1 truncate">{batch.notes}</p>}
-                </div>
-
-                <button
-                  onClick={() => handleStart(batch)}
-                  disabled={starting === batch.id}
-                  className={`btn-primary shrink-0 px-5 py-2.5 ${
-                    batch.status === 'IN_PROGRESS' || batch.status === 'PAUSED' ? 'bg-blue-600 hover:bg-blue-700' :
-                    batch.priority === 'URGENT' ? 'bg-red-600 hover:bg-red-700' : ''
-                  }`}
-                >
-                  {starting === batch.id ? (
-                    <span className="flex items-center gap-2"><span className="animate-spin h-4 w-4 rounded-full border-b-2 border-white" /> Cargando...</span>
-                  ) : (
-                    <span className="flex items-center gap-2">
-                      <Play size={16} />
-                      {batch.status === 'IN_PROGRESS' ? 'Continuar' : batch.status === 'PAUSED' ? 'Reanudar' : 'Iniciar'}
-                    </span>
-                  )}
-                </button>
+                ))}
               </div>
-            ))}
-        </div>
-      )}
-
-      {/* Create Batch Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Crear Nuevo Lote" size="lg">
-        <div className="space-y-4">
-          {error && (
-            <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded px-3 py-2">
-              <X size={14} />{error}
             </div>
           )}
 
-          <div>
-            <label className="label">Código de Lote *</label>
-            <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ej: LOTE-20240101-001" />
-          </div>
+          {/* Pending */}
+          {pending.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Pendientes</h2>
+              <div className="space-y-3">
+                {pending.map(b => (
+                  <div key={b.id} className="card px-5 py-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gray-50 rounded-lg shrink-0"><Package size={16} className="text-gray-400" /></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-gray-800">{b.name}</p>
+                          <PriorityDot priority={b.priority} />
+                          {b.priority === 'URGENT' && <span className="text-xs text-red-600 flex items-center gap-0.5"><AlertTriangle size={10} />Urgente</span>}
+                        </div>
+                        <p className="text-xs text-gray-500">{b.recipe.name}</p>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                          {b.supervisorName && <span className="flex items-center gap-1"><User size={10} />{b.supervisorName}</span>}
+                          {b.plannedStartAt && <span className="flex items-center gap-1"><Calendar size={10} />{format(new Date(b.plannedStartAt), 'dd MMM', { locale: es })}</span>}
+                          {b.plannedQty && <span>{b.plannedQty} {b.unit}</span>}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleStart(b.id)}
+                        disabled={starting === b.id}
+                        className="btn-primary shrink-0"
+                      >
+                        <Play size={14} /> {starting === b.id ? 'Iniciando...' : 'Iniciar'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
+          {/* Recent */}
+          {recent.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Recientes</h2>
+              <div className="space-y-2">
+                {recent.map(b => (
+                  <div key={b.id} className="card px-4 py-3 flex items-center gap-3">
+                    <div className={`p-1.5 rounded-lg shrink-0 ${b.status === 'COMPLETED' ? 'bg-green-50' : 'bg-gray-50'}`}>
+                      {b.status === 'COMPLETED' ? <CheckCircle size={14} className="text-green-600" /> : <X size={14} className="text-gray-400" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-700 truncate">{b.name}</p>
+                      <p className="text-xs text-gray-400">{b.recipe.name}</p>
+                    </div>
+                    <StatusBadge status={b.status} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {batches.length === 0 && (
+            <div className="card flex flex-col items-center justify-center py-16 text-gray-400">
+              <Package size={40} className="mb-3 opacity-30" />
+              <p className="text-sm">Sin lotes asignados</p>
+              <button onClick={openCreate} className="btn-secondary mt-4 text-sm"><Plus size={14} /> Crear primer lote</button>
+            </div>
+          )}
+        </>
+      )}
+
+      <Modal open={creating} onClose={() => setCreating(false)} title="Nuevo Lote de Producción" size="lg">
+        <div className="space-y-4">
+          {error && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Flujo de Producción *</label>
-              <select className="input" value={form.recipeId} onChange={e => setForm(f => ({ ...f, recipeId: e.target.value }))}>
-                <option value="">— Seleccionar flujo —</option>
-                {recipes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
+              <label className="label">Nombre del Lote *</label>
+              <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ej: LOTE-2025-001" />
             </div>
-            <div>
-              <label className="label">Máquina *</label>
-              <select className="input" value={form.machineId} onChange={e => setForm(f => ({ ...f, machineId: e.target.value }))}>
-                <option value="">— Seleccionar máquina —</option>
-                {machines.map(m => (
-                  <option key={m.id} value={m.id} disabled={m.status === 'MAINTENANCE'}>
-                    {m.name} ({m.code}){m.status === 'MAINTENANCE' ? ' [EN MANTENIMIENTO]' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="label">Prioridad</label>
               <select className="input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as Priority }))}>
                 {PRIORITY_OPTIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select>
             </div>
+          </div>
+          <div>
+            <label className="label">Receta *</label>
+            <select className="input" value={form.recipeId} onChange={e => {
+              const recipe = recipes.find(r => r.id === e.target.value)
+              setForm(f => ({ ...f, recipeId: e.target.value, unit: recipe?.yieldUnit || f.unit }))
+            }}>
+              <option value="">— Seleccionar receta —</option>
+              {recipes.map(r => <option key={r.id} value={r.id}>{r.name} (v{r.version})</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Cantidad</label>
-              <input type="number" className="input" value={form.plannedQty} min={0} step={0.01} onChange={e => setForm(f => ({ ...f, plannedQty: e.target.value }))} placeholder="0" />
+              <label className="label">Cantidad Planificada</label>
+              <input type="number" min="0" step="0.01" className="input" value={form.plannedQty} onChange={e => setForm(f => ({ ...f, plannedQty: e.target.value }))} placeholder="Opcional" />
             </div>
             <div>
               <label className="label">Unidad</label>
-              <input className="input" value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder="kg, L, unid..." />
+              <input className="input" value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder="kg, unidades..." />
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label flex items-center gap-1"><User size={12} />Encargado</label>
-              <input className="input" value={form.supervisorName} onChange={e => setForm(f => ({ ...f, supervisorName: e.target.value }))} placeholder="Tu nombre o encargado..." />
+              <label className="label"><User size={12} className="inline mr-1" />Supervisor</label>
+              <input className="input" value={form.supervisorName} onChange={e => setForm(f => ({ ...f, supervisorName: e.target.value }))} placeholder="Nombre supervisor" />
             </div>
             <div>
-              <label className="label flex items-center gap-1"><Calendar size={12} />Inicio Planificado</label>
+              <label className="label"><Calendar size={12} className="inline mr-1" />Inicio Planificado</label>
               <input type="datetime-local" className="input" value={form.plannedStartAt} onChange={e => setForm(f => ({ ...f, plannedStartAt: e.target.value }))} />
             </div>
           </div>
-
           <div>
-            <label className="label">Notas / Observaciones</label>
-            <textarea className="input resize-none" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones del lote..." />
+            <label className="label">Notas</label>
+            <textarea className="input resize-none" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Instrucciones..." />
           </div>
-
           <div className="flex justify-end gap-2 pt-2">
-            <button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
-            <button onClick={handleCreateBatch} disabled={saving} className="btn-primary">
-              {saving ? 'Creando...' : 'Crear Lote'}
-            </button>
+            <button onClick={() => setCreating(false)} className="btn-secondary">Cancelar</button>
+            <button onClick={handleCreate} disabled={saving} className="btn-primary">{saving ? 'Creando...' : 'Crear Lote'}</button>
           </div>
         </div>
       </Modal>
