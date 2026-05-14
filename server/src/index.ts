@@ -7,12 +7,13 @@ import 'dotenv/config'
 
 import authRoutes from './routes/auth'
 import machineRoutes from './routes/machines'
+import productRoutes from './routes/products'
+import processFlowRoutes from './routes/processFlows'
 import recipeRoutes from './routes/recipes'
 import batchRoutes from './routes/batches'
-import executionRoutes from './routes/executions'
+import userRoutes from './routes/users'
 import dashboardRoutes from './routes/dashboard'
 import layoutRoutes from './routes/layouts'
-import materialRoutes from './routes/materials'
 
 const app = express()
 const httpServer = createServer(app)
@@ -31,32 +32,28 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 
 app.use('/api/auth', authRoutes)
 app.use('/api/machines', machineRoutes)
+app.use('/api/products', productRoutes)
+app.use('/api/flows', processFlowRoutes)
 app.use('/api/recipes', recipeRoutes)
 app.use('/api/batches', batchRoutes)
-app.use('/api/executions', executionRoutes)
+app.use('/api/users', userRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/layouts', layoutRoutes)
-app.use('/api/materials', materialRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }))
 
 io.on('connection', socket => {
-  socket.on('join-execution', (executionId: string) => {
-    socket.join(`execution-${executionId}`)
-  })
-  socket.on('leave-execution', (executionId: string) => {
-    socket.leave(`execution-${executionId}`)
-  })
-  socket.on('step-update', (data: { executionId: string; [key: string]: unknown }) => {
-    socket.to(`execution-${data.executionId}`).emit('step-updated', data)
+  socket.on('join-batch', (batchId: string) => socket.join(`batch-${batchId}`))
+  socket.on('leave-batch', (batchId: string) => socket.leave(`batch-${batchId}`))
+  socket.on('batch-update', (data: { batchId: string; [key: string]: unknown }) => {
+    socket.to(`batch-${data.batchId}`).emit('batch-updated', data)
   })
 })
 
 export { io }
 
-// --- CONFIGURACIÓN CORRECTA DEL PUERTO PARA RAILWAY ---
-const PORT = Number(process.env.PORT) || 3001;
+const PORT = Number(process.env.PORT) || 3001
 
 httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🏭 MES Server running on port ${PORT}\n`);
-});
+  console.log(`\n🏭 MES Server running on port ${PORT}\n`)
+})

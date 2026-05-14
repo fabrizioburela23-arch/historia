@@ -13,85 +13,118 @@ router.get('/metrics', authenticate, requireAdmin, async (_req: AuthRequest, res
     prisma.batch.count({ where: { status: 'COMPLETED' } })
   ])
 
-  // OEE: ratio of actual vs target time for completed executions
-  const completedExecutions = await prisma.batchExecution.findMany({
-    where: { status: 'COMPLETED' },
-    include: {
-      stepExecutions: { select: { actualTimeSeconds: true } },
-      batch: { include: { recipe: { select: { targetTimeMinutes: true } } } }
-    },
-    orderBy: { completedAt: 'desc' },
-    take: 20
+  // ===== Rendimiento por flujo (histórico) =====
+  const flows = await prisma.processFlow.findMany({
+    select: { id: true, name: true, expectedOutputQty: true, inputQty: true }
   })
-
-  let avgEfficiency = 0
-  if (completedExecutions.length > 0) {
-    const efficiencies = completedExecutions.map(exec => {
-      const totalActual = exec.stepExecutions.reduce((sum, s) => sum + (s.actualTimeSeconds || 0), 0) / 60
-      const target = exec.batch.recipe.targetTimeMinutes
-      if (!target || totalActual === 0) return 100
-      return Math.min(200, (target / totalActual) * 100)
-    })
-    avgEfficiency = efficiencies.reduce((a, b) => a + b, 0) / efficiencies.length
-  }
-
-  // Bottleneck: steps with highest avg time vs target
-  const stepStats = await prisma.stepExecution.groupBy({
-    by: ['recipeStepId'],
-    _avg: { actualTimeSeconds: true },
-    _count: { id: true },
-    where: { status: 'COMPLETED', actualTimeSeconds: { not: null } }
-  })
-
-  const stepDetails = await Promise.all(
-    stepStats.slice(0, 5).map(async s => {
-      const step = await prisma.recipeStep.findUnique({
-        where: { id: s.recipeStepId },
-        select: { name: true, targetTimeMinutes: true, recipe: { select: { name: true } } }
-      })
-      return {
-        stepId: s.recipeStepId,
-        stepName: step?.name || 'Desconocido',
-        recipeName: step?.recipe?.name || '',
-        avgActualMinutes: ((s._avg.actualTimeSeconds || 0) / 60).toFixed(1),
-        targetMinutes: step?.targetTimeMinutes || 0,
-        count: s._count.id
-      }
-    })
-  )
-
-  // Recent executions
-  const recentExecutions = await prisma.batchExecution.findMany({
-    include: {
-      batch: { include: { recipe: { select: { name: true } }, machine: { select: { name: true } } } },
-      user: { select: { name: true } }
-    },
-    orderBy: { startedAt: 'desc' },
-    take: 10
-  })
-
-  // Efficiency per recent execution for chart
-  const efficiencyChart = completedExecutions.slice(0, 10).map(exec => {
-    const totalActualMin = exec.stepExecutions.reduce((sum, s) => sum + (s.actualTimeSeconds || 0), 0) / 60
-    return {
-      batchId: exec.batchId,
-      actualMinutes: totalActualMin.toFixed(1),
-      targetMinutes: exec.batch.recipe.targetTimeMinutes,
-      efficiency: totalActualMin > 0
-        ? ((exec.batch.recipe.targetTimeMinutes / totalActualMin) * 100).toFixed(1)
-        : '100'
+  const completedFlows = await prisma.batchFlow.findMany({
+    where: { status: 'COMPLETED', outputQtyActual: { not: null }, inputQtyActual: { not: null } },
+    select: {
+      flowId: true,
+      inputQtyActual: true,
+      outputQtyActual: true,
+      outputQtyExpected: true,
+      plannedTimeMin: true,
+      downtimeMin: true,
+      startedAt: true,
+      completedAt: true,
+      steps: { select: { actualTimeSeconds: true } }
     }
   })
 
+  const flowYields = flows.map(f => {
+    const runs = completedFlows.filter(r => r.flowId === f.id)
+    const yields = runs.map(r => (r.inputQtyActual && r.inputQtyActual > 0
+      ? (r.outputQtyActual! / r.inputQtyActual) * 100
+      : 0))
+    const avg = yields.length ? yields.reduce((a, b) => a + b, 0) / yields.length : null
+    return {
+      flowId: f.id,
+      flowName: f.name,
+      runs: runs.length,
+      avgYield: avg !== null ? avg.toFixed(1) : null
+    }
+  })
+
+  // ===== OEE (clásico) =====
+  // Por cada BatchFlow completado:
+  //   Availability = (plannedTime - downtime) / plannedTime
+  //   Performance  = sum(targetStepTimes) / sum(actualStepTimes)
+  //   Quality      = outputQtyActual / outputQtyExpected
+  let oeeSum = 0, availSum = 0, perfSum = 0, qualSum = 0, oeeCount = 0
+  for (const bf of completedFlows) {
+    const planned = bf.plannedTimeMin || 0
+    const downtime = bf.downtimeMin || 0
+    const availability = planned > 0 ? Math.max(0, (planned - downtime) / planned) : 1
+
+    const actualSec = bf.steps.reduce((s, st) => s + (st.actualTimeSeconds || 0), 0)
+    const actualMin = actualSec / 60
+    const operatingMin = Math.max(0.001, actualMin) // protege división
+    const performance = planned > 0 ? Math.min(1, planned / operatingMin) : 1
+
+    const quality = bf.outputQtyExpected > 0
+      ? Math.min(1, (bf.outputQtyActual || 0) / bf.outputQtyExpected)
+      : 1
+
+    oeeSum += availability * performance * quality
+    availSum += availability
+    perfSum += performance
+    qualSum += quality
+    oeeCount += 1
+  }
+
+  const oee = oeeCount > 0 ? (oeeSum / oeeCount) * 100 : null
+  const avgAvailability = oeeCount > 0 ? (availSum / oeeCount) * 100 : null
+  const avgPerformance = oeeCount > 0 ? (perfSum / oeeCount) * 100 : null
+  const avgQuality = oeeCount > 0 ? (qualSum / oeeCount) * 100 : null
+
+  // ===== Lotes recientes =====
+  const recentBatches = await prisma.batch.findMany({
+    take: 10,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      recipe: { select: { name: true } },
+      flows: {
+        select: {
+          status: true,
+          outputQtyActual: true,
+          outputQtyExpected: true,
+          inputQtyActual: true,
+          flow: { select: { name: true } }
+        }
+      }
+    }
+  })
+
+  // ===== Serie de rendimiento por lote (últimos 10) =====
+  const yieldChart = recentBatches
+    .filter(b => b.status === 'COMPLETED')
+    .slice(0, 10)
+    .map(b => {
+      const totalIn = b.flows.reduce((s, f) => s + (f.inputQtyActual || 0), 0)
+      const totalOut = b.flows.reduce((s, f) => s + (f.outputQtyActual || 0), 0)
+      return {
+        name: b.name,
+        yield: totalIn > 0 ? +((totalOut / totalIn) * 100).toFixed(1) : 0
+      }
+    })
+
   res.json({
-    totalBatches,
-    pendingBatches,
-    inProgressBatches,
-    completedBatches,
-    avgEfficiency: avgEfficiency.toFixed(1),
-    stepStats: stepDetails,
-    recentExecutions,
-    efficiencyChart
+    counts: { totalBatches, pendingBatches, inProgressBatches, completedBatches },
+    oee: oee !== null ? +oee.toFixed(1) : null,
+    availability: avgAvailability !== null ? +avgAvailability.toFixed(1) : null,
+    performance: avgPerformance !== null ? +avgPerformance.toFixed(1) : null,
+    quality: avgQuality !== null ? +avgQuality.toFixed(1) : null,
+    flowYields,
+    recentBatches: recentBatches.map(b => ({
+      id: b.id,
+      name: b.name,
+      status: b.status,
+      mode: b.mode,
+      createdAt: b.createdAt,
+      recipeName: b.recipe?.name
+    })),
+    yieldChart
   })
 })
 

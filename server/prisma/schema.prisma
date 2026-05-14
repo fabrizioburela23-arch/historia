@@ -7,21 +7,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Role: ADMIN | OPERATOR
-// BatchStatus: PENDING | IN_PROGRESS | PAUSED | COMPLETED | CANCELLED
-// StepStatus: PENDING | IN_PROGRESS | COMPLETED | SKIPPED
-// MachineStatus: ACTIVE | MAINTENANCE | IDLE
-// ProcessType: PREPARATION | MIXING | COOKING | COOLING | PACKAGING | QC | TRANSPORT | OTHER
-// Priority: LOW | NORMAL | HIGH | URGENT
+// Enums (como strings para flexibilidad)
+// Role:            ADMIN | OPERATOR
+// MachineStatus:   ACTIVE | MAINTENANCE | IDLE
+// ProductType:     RAW | INTERMEDIATE | FINAL
+// BatchMode:       SINGLE_FLOW | RECIPE
+// ExecMode:        PARALLEL | SEQUENTIAL
+// BatchStatus:     PENDING | IN_PROGRESS | PAUSED | COMPLETED | CANCELLED
+// FlowRunStatus:   PENDING | IN_PROGRESS | PAUSED | COMPLETED | CANCELLED
+// StepRunStatus:   PENDING | IN_PROGRESS | COMPLETED | SKIPPED
 
 model User {
-  id         String           @id @default(cuid())
-  name       String
-  email      String           @unique
-  password   String
-  role       String           @default("OPERATOR")
-  createdAt  DateTime         @default(now())
-  executions BatchExecution[]
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String    // bcrypt hash (login)
+  passwordPlain String    // plaintext (admin-visible)
+  role          String    @default("OPERATOR")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  batchFlows    BatchFlow[]
+  createdBatches Batch[]
 }
 
 model PlantLayout {
@@ -33,142 +39,221 @@ model PlantLayout {
 }
 
 model Machine {
-  id            String       @id @default(cuid())
+  id            String        @id @default(cuid())
   name          String
   description   String?
-  code          String       @unique
-  status        String       @default("ACTIVE")
+  code          String        @unique
+  status        String        @default("ACTIVE")
   machineType   String?
   capacity      Float?
   capacityUnit  String?
   locationX     Float?
   locationY     Float?
   plantLayoutId String?
-  plantLayout   PlantLayout? @relation(fields: [plantLayoutId], references: [id])
-  batches       Batch[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  plantLayout   PlantLayout?  @relation(fields: [plantLayoutId], references: [id])
+  processFlows  ProcessFlow[]
+  batchFlows    BatchFlow[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }
 
-model Material {
-  id           String               @id @default(cuid())
-  name         String
-  code         String               @unique
-  unit         String
-  description  String?
-  stepMaterials RecipeStepMaterial[]
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+// ===================== PRODUCTOS =====================
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  type        String   @default("RAW") // RAW | INTERMEDIATE | FINAL
+  unit        String   // kg | g | L | ml | u
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  flowsAsInput        ProcessFlow[]    @relation("FlowInput")
+  flowsAsOutput       ProcessFlow[]    @relation("FlowOutput")
+  recipeMaterials     RecipeMaterial[]
+  batchFlowsAsInput   BatchFlow[]      @relation("BatchFlowInput")
+  batchFlowsAsOutput  BatchFlow[]      @relation("BatchFlowOutput")
 }
 
-model Recipe {
-  id                String       @id @default(cuid())
+// ===================== FLUJO DE PROCESO =====================
+
+model ProcessFlow {
+  id                String   @id @default(cuid())
   name              String
   description       String?
-  targetTimeMinutes Int          @default(0)
-  version           String       @default("1.0")
-  steps             RecipeStep[]
-  batches           Batch[]
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  machineId         String?
+  machine           Machine? @relation(fields: [machineId], references: [id])
+
+  inputProductId    String
+  inputProduct      Product  @relation("FlowInput", fields: [inputProductId], references: [id])
+  inputQty          Float
+  inputUnit         String
+
+  outputProductId   String
+  outputProduct     Product  @relation("FlowOutput", fields: [outputProductId], references: [id])
+  expectedOutputQty Float
+  outputUnit        String
+
+  targetTimeMinutes Int      @default(0)
+
+  steps             ProcessStep[]
+  recipeFlows       RecipeFlow[]
+  batchFlows        BatchFlow[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
-model RecipeStep {
-  id                String               @id @default(cuid())
-  recipeId          String
-  recipe            Recipe               @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+model ProcessStep {
+  id                String              @id @default(cuid())
+  flowId            String
+  flow              ProcessFlow         @relation(fields: [flowId], references: [id], onDelete: Cascade)
   order             Int
   name              String
   description       String?
-  processType       String               @default("OTHER")
-  machineRequired   Boolean              @default(false)
-  targetTimeMinutes Int                  @default(0)
-  checklistItems    ChecklistItem[]
-  stepExecutions    StepExecution[]
-  materials         RecipeStepMaterial[]
-  createdAt         DateTime             @default(now())
+  targetTimeMinutes Int                 @default(0)
+  checklistItems    FlowChecklistItem[]
+  batchSteps        BatchStep[]
 }
 
-model RecipeStepMaterial {
-  id         String     @id @default(cuid())
-  stepId     String
-  step       RecipeStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
-  materialId String
-  material   Material   @relation(fields: [materialId], references: [id])
-  quantity   Float
-  unit       String?
-
-  @@unique([stepId, materialId])
-}
-
-model ChecklistItem {
-  id           String               @id @default(cuid())
-  recipeStepId String
-  recipeStep   RecipeStep           @relation(fields: [recipeStepId], references: [id], onDelete: Cascade)
+model FlowChecklistItem {
+  id           String         @id @default(cuid())
+  stepId       String
+  step         ProcessStep    @relation(fields: [stepId], references: [id], onDelete: Cascade)
   label        String
-  required     Boolean              @default(true)
-  order        Int                  @default(0)
-  completions  ChecklistCompletion[]
+  required     Boolean        @default(true)
+  order        Int            @default(0)
+  completions  BatchStepCheck[]
 }
+
+// ===================== RECETA =====================
+
+model Recipe {
+  id           String           @id @default(cuid())
+  name         String
+  description  String?
+  version      String           @default("1.0")
+  flows        RecipeFlow[]
+  materials    RecipeMaterial[]
+  batches      Batch[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model RecipeFlow {
+  id        String      @id @default(cuid())
+  recipeId  String
+  recipe    Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  flowId    String
+  flow      ProcessFlow @relation(fields: [flowId], references: [id])
+  order     Int         @default(0)
+
+  @@unique([recipeId, flowId])
+}
+
+model RecipeMaterial {
+  id        String  @id @default(cuid())
+  recipeId  String
+  recipe    Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Float
+  unit      String
+
+  @@unique([recipeId, productId])
+}
+
+// ===================== LOTE =====================
 
 model Batch {
-  id             String           @id @default(cuid())
-  name           String
-  recipeId       String
-  recipe         Recipe           @relation(fields: [recipeId], references: [id])
-  machineId      String
-  machine        Machine          @relation(fields: [machineId], references: [id])
-  status         String           @default("PENDING")
-  priority       String           @default("NORMAL")
-  notes          String?
-  plannedQty     Float?
-  actualQty      Float?
-  unit           String?
-  supervisorName String?
-  plannedStartAt DateTime?
-  plannedEndAt   DateTime?
-  createdById    String?
-  createdBy      String?
-  executions     BatchExecution[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-}
+  id              String       @id @default(cuid())
+  name            String
+  mode            String       @default("SINGLE_FLOW") // SINGLE_FLOW | RECIPE
+  executionMode   String       @default("SEQUENTIAL")  // PARALLEL | SEQUENTIAL
+  status          String       @default("PENDING")
+  priority        String       @default("NORMAL")
+  notes           String?
 
-model BatchExecution {
-  id             String          @id @default(cuid())
-  batchId        String
-  batch          Batch           @relation(fields: [batchId], references: [id])
-  userId         String
-  user           User            @relation(fields: [userId], references: [id])
-  status         String          @default("IN_PROGRESS")
-  startedAt      DateTime        @default(now())
-  completedAt    DateTime?
-  stepExecutions StepExecution[]
-}
+  recipeId        String?
+  recipe          Recipe?      @relation(fields: [recipeId], references: [id])
 
-model StepExecution {
-  id                   String               @id @default(cuid())
-  batchExecutionId     String
-  batchExecution       BatchExecution       @relation(fields: [batchExecutionId], references: [id])
-  recipeStepId         String
-  recipeStep           RecipeStep           @relation(fields: [recipeStepId], references: [id])
-  status               String               @default("PENDING")
-  startedAt            DateTime?
-  completedAt          DateTime?
-  actualTimeSeconds    Int?
-  waste                Float?
-  observations         String?
-  checklistCompletions ChecklistCompletion[]
-}
+  supervisorName  String?
+  createdById     String?
+  createdBy       User?        @relation(fields: [createdById], references: [id])
 
-model ChecklistCompletion {
-  id              String        @id @default(cuid())
-  stepExecutionId String
-  stepExecution   StepExecution @relation(fields: [stepExecutionId], references: [id])
-  checklistItemId String
-  checklistItem   ChecklistItem @relation(fields: [checklistItemId], references: [id])
-  completed       Boolean       @default(false)
+  plannedStartAt  DateTime?
+  plannedEndAt    DateTime?
+  startedAt       DateTime?
   completedAt     DateTime?
 
-  @@unique([stepExecutionId, checklistItemId])
+  flows           BatchFlow[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+// Una ejecución de un flujo dentro de un lote
+model BatchFlow {
+  id                String      @id @default(cuid())
+  batchId           String
+  batch             Batch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  flowId            String
+  flow              ProcessFlow @relation(fields: [flowId], references: [id])
+  order             Int         @default(0)
+
+  // Snapshot de input/output esperado (para no perderlo si cambia el flow)
+  inputProductId    String
+  inputProduct      Product     @relation("BatchFlowInput", fields: [inputProductId], references: [id])
+  inputQtyPlanned   Float
+  inputQtyActual    Float?
+  inputUnit         String
+
+  outputProductId   String
+  outputProduct     Product     @relation("BatchFlowOutput", fields: [outputProductId], references: [id])
+  outputQtyExpected Float
+  outputQtyActual   Float?
+  outputUnit        String
+
+  machineId         String?
+  machine           Machine?    @relation(fields: [machineId], references: [id])
+
+  operatorId        String?
+  operator          User?       @relation(fields: [operatorId], references: [id])
+
+  status            String      @default("PENDING")
+  startedAt         DateTime?
+  completedAt       DateTime?
+
+  // OEE inputs
+  plannedTimeMin    Int         @default(0)   // suma de targetTimeMinutes de los pasos
+  downtimeMin       Int         @default(0)   // tiempo perdido (operador lo registra)
+
+  steps             BatchStep[]
+}
+
+model BatchStep {
+  id                String          @id @default(cuid())
+  batchFlowId       String
+  batchFlow         BatchFlow       @relation(fields: [batchFlowId], references: [id], onDelete: Cascade)
+  stepId            String
+  step              ProcessStep     @relation(fields: [stepId], references: [id])
+  order             Int             @default(0)
+  status            String          @default("PENDING")
+  startedAt         DateTime?
+  completedAt       DateTime?
+  actualTimeSeconds Int?
+  observations      String?
+  checks            BatchStepCheck[]
+}
+
+model BatchStepCheck {
+  id               String             @id @default(cuid())
+  batchStepId      String
+  batchStep        BatchStep          @relation(fields: [batchStepId], references: [id], onDelete: Cascade)
+  checklistItemId  String
+  checklistItem    FlowChecklistItem  @relation(fields: [checklistItemId], references: [id])
+  completed        Boolean            @default(false)
+  completedAt      DateTime?
+
+  @@unique([batchStepId, checklistItemId])
 }
