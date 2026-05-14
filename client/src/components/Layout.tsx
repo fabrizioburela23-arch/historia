@@ -2,16 +2,18 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import {
   LayoutDashboard, Cpu, GitBranch, Package, Map, Factory,
-  LogOut, ChevronRight, User, FlaskConical
+  LogOut, ChevronRight, User, FlaskConical, Boxes, Users
 } from 'lucide-react'
 
 const adminNav = [
   { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/admin/machines', icon: Cpu, label: 'Máquinas' },
-  { to: '/admin/materials', icon: FlaskConical, label: 'Materiales' },
-  { to: '/admin/recipes', icon: GitBranch, label: 'Flujos Producción' },
+  { to: '/admin/products', icon: Boxes, label: 'Productos' },
+  { to: '/admin/flows', icon: GitBranch, label: 'Flujos de Proceso' },
+  { to: '/admin/recipes', icon: FlaskConical, label: 'Recetas' },
   { to: '/admin/batches', icon: Package, label: 'Lotes' },
-  { to: '/admin/layout', icon: Map, label: 'Layout Planta' }
+  { to: '/admin/machines', icon: Cpu, label: 'Máquinas' },
+  { to: '/admin/layout', icon: Map, label: 'Layout Planta' },
+  { to: '/admin/users', icon: Users, label: 'Usuarios' }
 ]
 
 const operatorNav = [
@@ -30,7 +32,6 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
-      {/* Sidebar */}
       <aside className="w-64 flex flex-col bg-gray-900 text-white shrink-0">
         <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-700">
           <div className="p-2 bg-indigo-600 rounded-lg">
@@ -42,11 +43,12 @@ export default function Layout() {
           </div>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {nav.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}
+              end
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                   isActive
@@ -79,7 +81,6 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
