@@ -1,18 +1,19 @@
 import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import multer from 'multer'
-import path from 'path'
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth'
+import { v2 as cloudinary } from 'cloudinary'
 
 const router = Router()
 const prisma = new PrismaClient()
 
-const storage = multer.diskStorage({
-  destination: path.join(__dirname, '../../uploads'),
-  filename: (_req, file, cb) => {
-    cb(null, `layout-${Date.now()}${path.extname(file.originalname)}`)
-  }
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 })
+
+const storage = multer.memoryStorage()
 const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } })
 
 router.get('/', authenticate, async (_req, res: Response) => {
@@ -41,12 +42,25 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res: Respo
 
 router.post('/:id/upload', authenticate, requireAdmin, upload.single('image'), async (req: AuthRequest, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Archivo requerido' }); return }
-  const imageUrl = `/uploads/${req.file.filename}`
-  const layout = await prisma.plantLayout.update({
-    where: { id: req.params.id },
-    data: { imageUrl }
-  })
-  res.json(layout)
+  try {
+    const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: 'mes-layouts', resource_type: 'image' },
+        (error, result) => {
+          if (error) reject(error)
+          else resolve(result as { secure_url: string })
+        }
+      ).end(req.file!.buffer)
+    })
+    const layout = await prisma.plantLayout.update({
+      where: { id: req.params.id },
+      data: { imageUrl: result.secure_url }
+    })
+    res.json(layout)
+  } catch (error) {
+    console.error('Cloudinary upload error:', error)
+    res.status(500).json({ error: 'Error al subir imagen' })
+  }
 })
 
 router.put('/:id/machine-pin', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
