@@ -22,10 +22,10 @@ model User {
   name          String
   email         String    @unique
   password      String    // bcrypt hash (login)
-  passwordPlain String    // plaintext (admin-visible)
+ passwordPlain String    @default("")
   role          String    @default("OPERATOR")
   createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  updatedAt     DateTime  @updatedAt @default(now())
   batchFlows    BatchFlow[]
   createdBatches Batch[]
 }
